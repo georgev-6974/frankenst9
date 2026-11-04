@@ -31,8 +31,12 @@
 #define FB_W			1440
 #define FB_H			2960
 #define FB_STRIDE		(FB_W * 4)
-#define DECON_TRIG		0x12860070UL	/* DECON_F HW_SW_TRIG_CONTROL */
-#define DECON_TRIG_UNMASK	0x1281U		/* uniLoader dreamlte */
+/* HYPOTHESIS, not measured on a 9810: DECON_F 0x16030000 (live DT) + 0x70, the
+ * HW_SW_TRIG_CONTROL offset of the 8895 and the 990 (barebox samsung-exynos).
+ * Value = the one that worked on the S8 (uniLoader dreamlte). The loader logs
+ * the register before and after the write. -DSTAR2LTE_NO_DECON_TRIG skips it. */
+#define DECON_TRIG		0x16030070UL
+#define DECON_TRIG_UNMASK	0x1281U
 #define RAMOOPS_CONSOLE		0x92080000UL	/* TWRP ramoops console zone */
 #define RAMOOPS_CONSOLE_SIZE	0x80000UL
 #define PRZ_SIG			0x43474244U	/* "DBGC" */
@@ -270,7 +274,7 @@ static void rtc_bootarg(volatile struct boot_args *ba, uint64_t raw)
 	ba->CommandLine[at] = 0;
 }
 
-/* The S8 MMIO probes below (DECON trigger 0x12860070, SPEEDY PMIC 0x15b50000,
+/* The S8 MMIO probes below (SPEEDY PMIC 0x15b50000,
  * touch, display, Mongoose PMU) use Exynos 8895 addresses. On the Exynos 9810
  * they hit unmeasured registers: blind writes at best fault, at worst poke an
  * unrelated block. They stay OFF until each one is re-derived for the S9+
@@ -284,12 +288,18 @@ static void rtc_bootarg(volatile struct boot_args *ba, uint64_t raw)
 
 uint64_t dl_main(uintptr_t dtb, uint64_t el, uint64_t sctlr)
 {
-	S8_ONLY(*(volatile uint32_t *)DECON_TRIG = DECON_TRIG_UNMASK);
+	uint32_t trig_old = *(volatile uint32_t *)DECON_TRIG;
+#ifndef STAR2LTE_NO_DECON_TRIG
+	*(volatile uint32_t *)DECON_TRIG = DECON_TRIG_UNMASK;
+#endif
 	log_len = 0;
 	fill(0, 0, FB_W, FB_H, 0xff000000U);
 	fg = 0xffffff00U;
 	out("S9LOADER BEGIN  (ios-s9plus star2lte XNU loader, untested)\n");
 	fg = 0xffffffffU;
+	kv("DECON_TRIG old", trig_old);
+	kv("DECON_TRIG now", *(volatile uint32_t *)DECON_TRIG);
+	out("\n");
 	kv("EL", el);
 	kv("SCTLR", sctlr);
 	kv("DTB", dtb);

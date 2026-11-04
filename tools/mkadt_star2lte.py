@@ -25,10 +25,13 @@ node '/dreamlte-ufs', 'a5xelte-fbcon') until patch 0125 adds star2lte.
 """
 import argparse
 import os
+import sys
 from pathlib import Path
 
-import adt
-import mkadt
+# make-boot.sh runs python3 -I (no script dir on sys.path): add it explicitly.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import adt  # noqa: E402
+import mkadt  # noqa: E402
 
 DRAM_BASE = 0x8c0000000   # NOT 0x880000000: firmware-reserved there
 DRAM_SIZE = 0x20000000

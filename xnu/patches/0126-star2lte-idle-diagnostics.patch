@@ -1,0 +1,106 @@
+diff --git osfmk/arm64/cpu.c osfmk/arm64/cpu.c
+index b082a10..39195f5 100644
+--- a/osfmk/arm64/cpu.c
++++ b/osfmk/arm64/cpu.c
+@@ -583,6 +583,12 @@ cpu_idle(void)
+ #if defined(APPLETYPHOON)
+ 		// <rdar://problem/15827409> CPU1 Stuck in WFIWT Because of MMU Prefetch
+ 		typhoon_prepare_for_wfi();
++#endif
++#if defined(A5XELTE)
++		{
++			extern void a5xelte_idle_diag(void);
++			a5xelte_idle_diag();   /* star2lte diagnostics (0126) */
++		}
+ #endif
+ 		__builtin_arm_dsb(DSB_SY);
+ #if HAS_RETENTION_STATE
+diff --git osfmk/arm64/sleh.c osfmk/arm64/sleh.c
+index 87fb8a8..263fa06 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1865,6 +1865,11 @@ sleh_irq(arm_saved_state_t *state)
+ 	extern uint32_t a5xelte_irq_ack(void);
+ 	extern void a5xelte_irq_eoi(uint32_t);
+ 	iar = a5xelte_irq_ack();
++	{
++		extern volatile uint32_t a5xelte_irq_count, a5xelte_last_iar;
++		a5xelte_irq_count++;      /* star2lte diagnostics (0126) */
++		a5xelte_last_iar = (uint32_t)iar;
++	}
+ 	#define A5_IRQ_EOI(value) a5xelte_irq_eoi((uint32_t)(value))
+ 	const uint32_t timer_intid = A5XELTE_VTIMER_INTID;
+ #else
+diff --git osfmk/kern/startup.c osfmk/kern/startup.c
+index bec97fb..ad176dd 100644
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -768,6 +768,13 @@ kernel_bootstrap_thread(void)
+ 	kernel_bootstrap_log("kernel_do_post - done");
+ #endif /* CONFIG_XNUPOST */
+ 
++#if defined(A5XELTE)
++	{
++		extern volatile int a5xelte_diag_on;
++		a5xelte_diag_on = 1;   /* star2lte idle diagnostics (0126) */
++		kprintf("S9DIAG: armed before PE_lockdown_iokit\n");
++	}
++#endif
+ #ifdef  IOKIT
+ 	kernel_bootstrap_log("PE_lockdown_iokit");
+ 	PE_lockdown_iokit();
+diff --git pexpert/arm/pe_fiq.c pexpert/arm/pe_fiq.c
+index 0207f32..32bd5d9 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -284,6 +284,50 @@ a5xelte_gic_diagnostics(unsigned int logical, const char *stage)
+ 	    a5_gic_read32(a5_gicc_base, 0x018));
+ }
+ 
++/*
++ * star2lte diagnostics (patch 0126): state of the timer and the GIC each time
++ * the CPU is about to idle, so a screen photo shows why it never wakes up.
++ * Printed only when something changed (or every 64th idle); armed by
++ * kernel_bootstrap_thread just before PE_lockdown_iokit().
++ */
++volatile uint32_t a5xelte_irq_count;
++volatile uint32_t a5xelte_last_iar;
++volatile int a5xelte_diag_on;
++
++void
++a5xelte_idle_diag(void)
++{
++	static uint32_t n, prints, l_ctl, l_due, l_pend, l_act, l_hpp, l_irq;
++	if (!a5xelte_diag_on || !a5_gicd_base || !a5_gicc_base) {
++		return;
++	}
++	uint64_t ct = __builtin_arm_rsr64("CNTPCT_EL0");
++	uint64_t ctl = __builtin_arm_rsr64("CNTP_CTL_EL0");
++	uint64_t cval = __builtin_arm_rsr64("CNTP_CVAL_EL0");
++	uint32_t due = (ct >= cval) ? 1 : 0;
++	uint32_t pend = a5_gic_read32(a5_gicd_base, 0x200);
++	uint32_t act = a5_gic_read32(a5_gicd_base, 0x300);
++	uint32_t hpp = a5_gic_read32(a5_gicc_base, 0x018);
++	uint32_t irq = a5xelte_irq_count;
++	n++;
++	bool changed = ((uint32_t)(ctl & 7) != l_ctl) || due != l_due || pend != l_pend ||
++	    act != l_act || hpp != l_hpp || irq != l_irq;
++	if (!(changed ? prints < 400 : (n % 64) == 0)) {
++		return;
++	}
++	l_ctl = (uint32_t)(ctl & 7); l_due = due; l_pend = pend; l_act = act; l_hpp = hpp; l_irq = irq;
++	prints++;
++	kprintf("S9DIAG idle#%u ct=%llx ctl=%llx cval-ct=%lld due=%u daif=%llx | "
++	    "gicd=%08x grp=%08x en=%08x pend=%08x act=%08x | gicc=%08x pmr=%08x hpp=%08x | "
++	    "irqs=%u last_iar=%x\n",
++	    n, ct, ctl, (long long)(cval - ct), due,
++	    (unsigned long long)__builtin_arm_rsr64("DAIF"),
++	    a5_gic_read32(a5_gicd_base, 0x000), a5_gic_read32(a5_gicd_base, 0x080),
++	    a5_gic_read32(a5_gicd_base, 0x100), pend, act,
++	    a5_gic_read32(a5_gicc_base, 0x000), a5_gic_read32(a5_gicc_base, 0x004), hpp,
++	    irq, a5xelte_last_iar);
++}
++
+ void
+ pe_init_fiq(void)
+ {

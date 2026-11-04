@@ -3,12 +3,29 @@
 Project name: **frankenstnine** (Frankenstein + S9; the user's choice, turn 5). Only display names use it; directory, patch and code names (`star2lte` etc.) stay.
 GitHub: user `georgev-6974`, repo created as `s9plus-ios` (renamed to `frankenstnine` in turn 5, see step C). Local folder is still `~/Downloads/ios-galaxy-s9plus`.
 
-# HANDOFF (read this first; last updated 2026-11-04, turn 6)
+# HANDOFF (read this first; last updated 2026-11-05)
 
 **Goal**: boot an iOS 16 XNU kernel on a Galaxy S9+ (SM-G965F, Exynos 9810) via a custom loader in the BOOT partition (`sda10`), forked from the S8 port.
 **Standing rules** (AGENTS.md): never reuse an S8 address without a measurement; keep build success / kernel markers / screen reports / iOS runtime as separate claims; keep dumps, serials and Apple binaries out of git; confirm every destructive step with the user; donor files (`shim/dreamlte`, `tools/dreamlte`, `DREAMLTE_PROGRESS.md`, `NOTES.md`) are not edited.
-**State**: loader cross-compiled before turn 4 (never run; the turn-4 edits to it are NOT compiled, no clang in the assistant sandbox). ADT generator and make-boot.sh exist (offline only). Patch 0125 exists as a script (`apply-star2lte.py`), checked on a pseudo-tree only. **No phone measurement beyond the TWRP facts below; no kernel built; no boot attempted.**
+**State (SUPERSEDED by "Helper script and latest hardware results" below: the loader and kernel have now run on the phone)**: loader cross-compiled before turn 4 (was never run then; the turn-4 edits to it are NOT compiled, no clang in the assistant sandbox). ADT generator and make-boot.sh exist (offline only). Patch 0125 exists as a script (`apply-star2lte.py`), checked on a pseudo-tree only. **No phone measurement beyond the TWRP facts below; no kernel built; no boot attempted.**
 **Blocked on the user**: see "What you do next" (user has a generated, real-tree-verified 0125 patch; next: re-unzip, send two small facts, push to GitHub and build).
+
+## Helper script and latest hardware results (added 2026-11-05)
+**`tools/star2lte/s9.sh` exists: use it instead of hand-typing commands, and keep the user on it.** Run from the project folder:
+- `bash tools/star2lte/s9.sh build [KERNEL]`: runs `make-boot.sh` (newest file in `xnu/out` if none given; MPIDR 0x0; boot-args default include `rd=ufsroot0 ufsroot=USERDATA ufslogsecs=2`, override with `ARGS="..."`), checks the 57,671,680-byte BOOT limit, writes `out.img`.
+- `... flash [IMG]`: TWRP only; asks `yes`, writes `sda10`, reads it back and compares SHA-256, optional reboot. Refuses without `~/s9-backup/boot-sda10.img`.
+- `... pull [NAME]`: pulls and decodes LDRLOG + SWEETLOG into `logs/`; **NAME defaults to the next free `vN`** (v1, v2 exist as of now), prints loader head and kernel tail.
+- `... restore`: writes the stock BOOT backup back to `sda10`.
+Edit the script (not ad-hoc commands) when a step changes, and ship it in the zip.
+
+**Observed on the phone (user-reported, 2026-11-04/05; kernel built by CI, run IDs not in this zip):**
+- Loader ran: `EL=0x1 SCTLR=0x30c5183e DTB=0x8a000000 MPIDR=0x81000000` (affinity 0x0 = A55 cluster, so `--boot-mpidr 0x0` is right), initrd `0x89000000-0x89fbb880`, XNU window `0x8c0000000` 512 MiB, entry `0xfffffff007424488`, 10 segments copied.
+- **DECON trigger fixed**: `DECON_TRIG` at `0x16030070` read `0x3070`, written `0x1281`, reads back `0x1001`. The screen shows the loader and kernel text.
+- **XNU boots and prints on screen** (photo): VM/zone init, IOKit, platform expert, AppleKeyStore, WDT, HID, static battery, AppleCLCD 1440x2960 at 0xcc000000, AMFI, vnguard; last visible line `trust caches unavailable (Image4/AMFI not installed)`. The user waited only ~3 min then went to TWRP, so it is NOT known whether it stalls there or is just slow (CPU-drawn console, 1 core; S8 needed ~15 min to the lock screen).
+- `SWEETLOG` empty after that boot: expected, because the kernel UFS driver (and its log thread) only starts at root mount (`rd=ufsroot0`), which the first boot-args did not request. Next trial uses `rd=ufsroot0 ufsroot=USERDATA ufslogsecs=2`; this writes ~4 MiB at the end of `sda25` (Android data tail; the user accepted losing Android in AGENTS.md, but confirm before flashing).
+- Open: whether the kernel progresses past `trust caches` (wait >=10 min, photograph), then whether the UFS driver works on the S9+ (`SWEET UFS:` lines).
+
+**Trial v3 (user-reported + log, 2026-11-05):** boot-args had `rd=ufsroot0 ufsroot=USERDATA ufslogsecs=2`. After 24 min the screen was still frozen on the `trust caches unavailable` line; no new text. LDRLOG v3 is complete and clean: the loader's UFS probe works on the S9+ (VER 0x210, GPT parse OK; BOOT 0x4c02-0x8301, SYSTEM 0x10c80-0x26287f, USERDATA 0x309180-0xee47fa; the first TUR "not ready" is cured by SSU wlun ACTIVE) and it printed `JUMP TO XNU`. SWEETLOG empty = the kernel never reached the root-device/UFS init (patch 0028 `sweet_ufs_rootdev`, called from bsd_init -> vfs_mountroot). **So the hang is in `kernel_bootstrap_thread` after `trust_cache_runtime_init`/`load_static_trust_cache`, or early in `bsd_init`.** From xnu-8796 source (`osfmk/kern/startup.c`), the order after the trust-cache line is: `kernel_startup_initialize_upto(STARTUP_SUB_LOCKDOWN)` -> `OSKextRemoveKextBootstrap` -> `machine_lockdown` -> `PE_lockdown_iokit` -> `bsd_init` (-> IOKitInitializeTime, vfsinit, bsd_autoconf, setconf, vfs_mountroot). Suspects: a timer/GIC tick that never arrives with `cpus=1` (a sleeping thread never wakes), `machine_lockdown`, or something in `PE_lockdown_iokit`/IOKit matching. **No rebuild needed to narrow it:** the boot-arg `startup_debug=1` makes XNU kprintf every startup step ("kernel_bootstrap_thread: <step>"); `s9.sh build` now includes it by default. Next trial = photograph the LAST lines on screen after ~2-3 min.
 
 ## About the user (keep in mind every turn)
 - Comfortable with Linux and the shell, but **new to kernels and git**: still give exact copy-pasteable commands with the expected output and what to do if it differs; explain each kernel/git term in one or two plain sentences the first time it appears (what a repo, commit, push, CI run, boot image, DT/ADT is).
@@ -48,7 +65,24 @@ Always start with `cd ~/Downloads/ios-galaxy-s9plus`.
    `gh repo create s9plus-ios --public --source=. --push`   (use `--private` if you accept the billing)
    Observed (turn 6, corrects turn 5): the first push DID start a run (it appeared in `gh run list` about a minute later; "no runs found" was GitHub lag). A manual `gh workflow run xnu.yml -f machine_config=A5XELTE -f keep_going=true` also works but only needed if `gh run list` is still empty after 2-3 minutes. Only ONE run at a time: a new push/run on the same branch cancels the running one.
    `gh run list`  then  `gh run watch`  (arrow to the run, Enter; Ctrl+C leaves it running).
-   First failure seen: run 41908009114 died after ~2 min in script `0020-stage-bearssl.sh` with `www.bearssl.org ... HTTP 502` (their server, not our code). Fixed in turn 6: the three staging scripts now retry, and BearSSL falls back to two GitHub mirrors (commit hash still verified). To retry only the failed part of a run without a new push: `gh run rerun RUN_ID --failed`.
+   First failure seen: run 41908009114 died after ~2 min in script `0020-stage-bearssl.sh` with `www.bearssl.org ... HTTP 502` (their server, not our code). Turn 6 added retries + two GitHub mirrors; turn 7 log showed that was not enough (bearssl.org 502 for >2 min on all 3 attempts; both mirrors answer "not our ref 7bea48e5", i.e. they lack that commit). Turn 7: vendor the commit into the repo (step C2). To retry only the failed part of a run without a new push: `gh run rerun RUN_ID --failed`.
+   **C2 (needed while bearssl.org is down): vendor BearSSL into the repo.** The script `xnu/patches/0020-stage-bearssl.sh` now uses `xnu/patches/bearssl-7bea48e5e850ab4cafbe68d3765cdaba13a86d6f.tar.gz` if it exists (found through `$GITHUB_WORKSPACE`), and only then the network. Make that file ON YOUR PC, once:
+   `git ls-remote https://www.bearssl.org/git/BearSSL | head -3`   (prints lines of hashes = site reachable; error/502/hang = not reachable now, wait 30-60 min and retry, or tell the assistant)
+   `rm -rf /tmp/bearssl-src; git init -q /tmp/bearssl-src`
+   `git -C /tmp/bearssl-src fetch --depth 1 https://www.bearssl.org/git/BearSSL 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f`
+   `git -C /tmp/bearssl-src checkout -q FETCH_HEAD`
+   `git -C /tmp/bearssl-src rev-parse HEAD`   (must print exactly 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f; if not, STOP)
+   `git -C /tmp/bearssl-src archive --format=tar.gz -o ~/Downloads/ios-galaxy-s9plus/xnu/patches/bearssl-7bea48e5e850ab4cafbe68d3765cdaba13a86d6f.tar.gz HEAD inc src LICENSE.txt`
+   `ls -l ~/Downloads/ios-galaxy-s9plus/xnu/patches/bearssl-*.tar.gz; tar -tzf ~/Downloads/ios-galaxy-s9plus/xnu/patches/bearssl-*.tar.gz | head -5`   (several hundred KB; list starts with inc/ or src/)
+   then `git add -A; git status --short; git commit -m "vendor BearSSL 7bea48e5 for CI"; git push`.
+   **C2-alt (turn 8): if the `git fetch` above gives HTTP 502** (observed: `git ls-remote` works and shows 7bea48e5 = master HEAD, but pack downloads 502), use the site's gitweb snapshot route instead (the URL form Gentoo/Alpine packages use):
+   `curl -fL --retry 8 --retry-all-errors --retry-delay 15 -o /tmp/bearssl-snap.tgz 'https://bearssl.org/gitweb/?p=BearSSL;a=snapshot;h=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f;sf=tgz'`
+   `gzip -dc /tmp/bearssl-snap.tgz | git get-tar-commit-id`   (must print exactly 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f; if it prints NOTHING, tell the assistant; if it prints a different hash, STOP)
+   `rm -rf /tmp/bearssl-snap; mkdir /tmp/bearssl-snap`
+   `tar -xzf /tmp/bearssl-snap.tgz -C /tmp/bearssl-snap --strip-components=1`
+   `ls /tmp/bearssl-snap`   (must include inc, src, LICENSE.txt)
+   `tar -czf ~/Downloads/ios-galaxy-s9plus/xnu/patches/bearssl-7bea48e5e850ab4cafbe68d3765cdaba13a86d6f.tar.gz -C /tmp/bearssl-snap inc src LICENSE.txt`
+   then the same `ls -l` / `tar -tzf ... | head -5` checks and the `git add/commit/push` line above. (Or retry the fetch in fish: `for i in 1 2 3 4 5 6; git -C /tmp/bearssl-src fetch --depth 1 https://www.bearssl.org/git/BearSSL 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f; and break; sleep 20; end`.)
    To send updated files from the assistant: `cd ~/Downloads; unzip -o ios-galaxy-s9plus-progress.zip; cd ios-galaxy-s9plus; git add -A; git status --short; git commit -m "describe the change"; git push` (a push touching `xnu/patches/**` starts a new run by itself).
    Done when the run shows completed/success: `gh run download -n xnu-kernel -D xnu/out` then `ls -l xnu/out` (send that listing). If it failed: `gh run view --log-failed | tail -80`, paste it.
 **D. Build tools for the BOOT image** (the loader is compiled on your PC): `sudo pacman -S clang lld llvm`  (`aarch64-linux-gnu-gcc` is optional). Then, with the exact kernel file name from `ls xnu/out`:
@@ -196,3 +230,52 @@ Two areas at the end of USERDATA (`sda25`), both clear of the 16 GB iOS root ima
 - Added: nothing else. Removed: the "start it by hand" advice as the default.
 - Verified: bash syntax of all three scripts; retry/fallback loop simulated with a fake `git` (falls through the three URLs). NOT verified: that either GitHub mirror actually contains commit 7bea48e5 (if neither does and bearssl.org stays down the run fails with "could not fetch BearSSL"); the real CI run.
 
+**Turn 7 (user pasted the failed log of the run with the turn-6 retries)**
+- Observed: the retry loop ran 3 rounds x 3 sources (~2 min): bearssl.org HTTP 502 every time; github.com/nickray/bearssl and github.com/tarigo/BearSSL: "not our ref 7bea48e5..." (commit absent). Ends `could not fetch BearSSL`, exit 1. libpthread staging passed again. Still nothing of ours compiled.
+- Changed: `xnu/patches/0020-stage-bearssl.sh` prefers a vendored `xnu/patches/bearssl-<sha>.tar.gz` (extracted into the temp dir, network skipped); network loop and the commit check are unchanged and only run without it. The two mirrors stay in the loop but are known not to have the commit.
+- Added: step C2 (user creates the tarball locally from bearssl.org and commits it).
+- Corrected: my turn-6 assumption that a GitHub mirror would carry the commit.
+- Verified: syntax; vendored path tested with stand-in files (18 files staged, `limits.h` rewrite applied, exit 0). NOT verified: the real tarball (does not exist yet), anything in the real CI. Trust note: the vendored tarball has no hash pin; its integrity rests on the user's local `rev-parse` check.
+
+**Turn 8 (user ran C2 on their PC)**
+- Observed: `git ls-remote https://www.bearssl.org/git/BearSSL` works: HEAD and refs/heads/master = 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f (so our pin is the current master head). `git fetch --depth 1 <url> <sha>` fails with HTTP 502 for the user too; the empty /tmp/bearssl-src repo then made checkout/rev-parse fail (harmless follow-ups).
+- Found (web search): bearssl.org also serves `https://bearssl.org/gitweb/?p=BearSSL;a=snapshot;h=<commit>;sf=tgz` (used by Gentoo and Alpine packages), a different server path; top directory in the tarball is `BearSSL-<first 7 of sha>/`.
+- Added: step C2-alt (curl with retries, commit check with `git get-tar-commit-id`, re-pack into the layout the script expects).
+- Changed/removed: nothing in code. NOT verified: that the gitweb route works right now, or that its tarball carries the commit-id header (the check will tell).
+
+
+**Turn 9 (CI still fails on bearssl.org 502; user has no tarball yet)**
+- Observed: no `xnu/patches/bearssl-*.tar.*` exists in the repo/zip, so the script still falls into the network loop (bearssl.org 502; the two GitHub mirrors lack the pinned commit).
+- Changed: `xnu/patches/0020-stage-bearssl.sh` now takes ANY `xnu/patches/bearssl-*.tar.gz|.xz|.tgz` (pinned-sha name preferred), in any layout (`git archive`, gitweb snapshot, release/Debian tarball with one top dir), and warns when it is not the pinned commit.
+- Verified: syntax; staging with stand-in trees in all three layouts (files staged, `machine/limits.h` rewrite applied). NOT verified: a real BearSSL tarball, the real CI.
+- Fallback (not the pinned commit, 0.6 release of 2018): Debian `bearssl_0.6+dfsg.1.orig.tar.xz` (e.g. mirror.its.umich.edu/ubuntu/pool/universe/b/bearssl/). Unverified that patch 0098 builds against 0.6.
+
+**Turn 10 (CI got past the BearSSL download; new failure in my script)**
+- Observed: run on macOS runner: `0019-stage-libpthread` OK, then `0020-stage-bearssl.sh` died with `find: -printf: unknown primary or operator` (BSD find). So the vendored tarball WAS found and extracted; only my layout-detection line failed. The "Package build tree" errors that follow are consequences (no build tree).
+- Changed: `0020-stage-bearssl.sh` detects the top directory with a portable bash loop instead of `find -printf`. My Turn 9 test ran on Linux, whose find has -printf, so it could not catch this.
+- Verified: syntax, no `printf` left in the find line, three tarball layouts on Linux. NOT verified: on macOS (the real CI).
+
+**Turn 11 (user ran step D; `ModuleNotFoundError: No module named 'adt'`)**
+- Observed: `tools/star2lte/make-boot.sh` runs `python3 -I tools/mkadt_star2lte.py`; `-I` (isolated mode) does not put the script's directory on `sys.path`, so `import adt` (tools/adt.py) failed. `out.img` missing was only the follow-up `ls`.
+- Changed: `tools/mkadt_star2lte.py` inserts its own directory into `sys.path` before `import adt, mkadt` (as `mkadt.py` and `mkpayload.py` already do).
+- Verified: `python3 -I tools/mkadt_star2lte.py ... --boot-mpidr 0x0` now writes a 9576-byte ADT here (only the expected `d22ap.adt missing` warning). NOT verified: the later steps (`mkpayload.py` with the real kernel, `build.sh` loader compile with `-Werror`, bootimg packing): I have neither the kernel, the stock boot image nor clang in my sandbox.
+
+**Turn 12 (FIRST S9+ BOOT TRIAL, user-reported 2026-11-05)**
+- Observed: phone stayed on the Samsung "Galaxy S9+" logo (no loader text, not blank). Log pulled from sda25 (`docs/star2lte-facts/ldrlog-v1.txt`): the loader RAN TO THE END and printed `JUMP TO XNU`.
+- Measured: loader entered at EL1, SCTLR 0x30c5183e (M=0, MMU off), boot CPU MPIDR_EL1 0x81000000 = Aff 0x0 (A55 cluster, cpu0; matches `--boot-mpidr 0x0`; bit 24 is MT). S-Boot DTB 0x8a000000, initrd (our payload) 0x89000000-0x89fbb880. XNU RAM at 0x8c0000000 (512 MiB) zeroed and written without a fault; 10 segments copied; entry_pa 0x8c1424488.
+- Measured UFS: VER 0x210 (UFS 2.1); first TUR "not ready" (key 2 asc 4 ascq 2) -> SSU wlun ACTIVE fixes it, same as S8; READ and GPT parse work. GPT: BOOT 0x4c02-0x8301, SYSTEM 0x10c80-0x26287f, USERDATA 0x309180-0xee47fa.
+- Verified on hardware: the new UFS WRITE(10) path wrote the LDRLOG area (flush #2) at the computed LBA; TWRP read it back at `n-1025-64` of sda25, so the block arithmetic is right.
+- NOT known: whether XNU started. The logo stays because the S9+ display trigger is not ported (the loader's text was drawn into 0xcc000000 but is not shown) OR XNU hung/crashed after the jump; the screen cannot tell them apart, and XNU has no log channel yet (patch 0124's 0x92xxxxxx klog is not a reserved region here; the kernel UFS ring needs the XNU UFS driver).
+- Next: measure DECON_F (0x16030000) in TWRP with devmem to port the display trigger; then add an XNU-side log channel.
+
+**Turn 13 (display trigger; TWRP has no /dev/mem access)**
+- Observed (TWRP): `/dev/mem` node can be created but the kernel has no devmem (ENXIO), so no register reads from TWRP. debugfs `decon/` has `dump0`/`dump2` (empty) and `event0`: driver event log only (60 Hz TE interrupts, DSIM init commands, hibernation on); no register offsets. Live DT `decon_f`: `exynos9-decon`, psr_mode 2 (command), trig_mode 0 (HW trigger).
+- Found (web, barebox mailing list patch for samsung-exynos): HW_SW_TRIG_CONTROL = DECON0 + 0x70 on the 8895 (0x12860000) and the 990 (0x19050000); bits 12 (auto mask), 8 (SW trig), 0 (HW trig); the patch says post-S7 phones leave framebuffer refresh disabled at handoff. The 9810 is between them, so 0x16030070 is the likely register. NOT verified on a 9810.
+- Changed: `shim/star2lte/loader.c` writes 0x1281 (the value that worked on the S8) to `0x16030070` at entry and logs `DECON_TRIG old` / `DECON_TRIG now`; `-DSTAR2LTE_NO_DECON_TRIG` turns it off. Host syntax check only; not compiled with clang/aarch64 here.
+- Expected: if the hypothesis is right the loader text appears on screen; the log's `old` value tells us what S-Boot left in the register. Risk: a wrong register layout could leave the logo/blank; restore sda10 from backup.
+
+**Turn 14 (display trigger build flashed; user-reported 2026-11-05)**
+- Observed: the screen now shows text (the `0x16030070 = 0x1281` trigger write works, so the S8 unmask value and the DECON_F + 0x70 offset hold on the 9810 at least for display). XNU is RUNNING: the last visible line was `SWEET: trust caches unavailable (Image4/AMFI not installed)`.
+- Meaning: that line is our own patch 0015 (`kern_trustcache.c`, `trust_cache_init`), an intentional benign message because the lab build has no AppleImage4/AMFI. Reaching it means: loader handoff, MMU/pmap/VM bring-up and early kernel threads all worked on the S9+.
+- NOT known: where it stops after that line (hang vs panic), whether timers/GIC interrupts work (`cpus=1`), whether the XNU UFS driver (patch 0028 path) works on the 9810 so the root device can mount.
+- Next: pull the kernel SWEETLOG ring (needs the XNU UFS driver flushing) plus the LDRLOG; if the ring is empty, photograph the last screen.
