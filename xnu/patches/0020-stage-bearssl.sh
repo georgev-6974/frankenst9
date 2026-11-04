@@ -6,26 +6,46 @@ case "${MACHINE_CONFIG:-}" in SWEET|A5XELTE) ;; *) exit 0 ;; esac
 bearssl_sha=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
 bearssl_tmp=$(mktemp -d)
 trap 'rm -rf "$bearssl_tmp"' EXIT
-git init -q "$bearssl_tmp"
-# www.bearssl.org returned HTTP 502 in CI (2026-11-04), so retry and fall back to
-# two GitHub mirrors. Safe: the exact commit is verified below, a mirror that
-# lacks it simply fails the fetch.
-fetched=0
-for attempt in 1 2 3; do
-    for url in https://www.bearssl.org/git/BearSSL \
-        https://github.com/nickray/bearssl https://github.com/tarigo/BearSSL; do
-        if git -C "$bearssl_tmp" fetch -q --depth 1 "$url" "$bearssl_sha"; then
-            fetched=1
-            break 2
-        fi
-        echo "BearSSL fetch failed from $url (attempt $attempt)" >&2
-    done
-    sleep $((attempt * 15))
+# Preferred source: a copy of the pinned commit committed to this repo
+# (xnu/patches/bearssl-<sha>.tar.gz = `git archive` of inc/ src/ LICENSE.txt),
+# because www.bearssl.org returned HTTP 502 for minutes in CI on 2026-11-04 and
+# the GitHub mirrors do not carry this commit. See STAR2LTE_PROGRESS.md.
+vendor_dir="${GITHUB_WORKSPACE:-/nonexistent}/xnu/patches"
+vendored=
+for f in "$vendor_dir/bearssl-$bearssl_sha.tar.gz" "$vendor_dir"/bearssl-*.tar.gz \
+    "$vendor_dir"/bearssl-*.tar.xz "$vendor_dir"/bearssl-*.tgz; do
+    if [[ -f "$f" ]]; then vendored=$f; break; fi
 done
-[[ $fetched = 1 ]] || { echo "could not fetch BearSSL $bearssl_sha" >&2; exit 1; }
-git -C "$bearssl_tmp" checkout -q FETCH_HEAD
-[[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]
-python3 - "$bearssl_tmp" <<'PY'
+bearssl_src=$bearssl_tmp
+if [[ -n "$vendored" ]]; then
+    # Any layout works: `git archive` (inc/ src/ at top), a gitweb snapshot or a
+    # release/Debian tarball (one top directory holding inc/ and src/).
+    tar -xf "$vendored" -C "$bearssl_tmp"
+    if [[ ! -d "$bearssl_tmp/inc" ]]; then
+        bearssl_src=$(find "$bearssl_tmp" -mindepth 2 -maxdepth 2 -type d -name inc -printf '%h\n' | head -1)
+        [[ -n "$bearssl_src" && -d "$bearssl_src/src" ]] || { echo "vendored $vendored has no inc/ + src/" >&2; exit 1; }
+    fi
+    [[ "$vendored" == *"$bearssl_sha"* ]] || echo "WARNING: vendored BearSSL is not the pinned commit $bearssl_sha: $vendored" >&2
+    echo "Using vendored BearSSL $vendored"
+else
+    git init -q "$bearssl_tmp"
+    fetched=0
+    for attempt in 1 2 3; do
+        for url in https://www.bearssl.org/git/BearSSL \
+            https://github.com/nickray/bearssl https://github.com/tarigo/BearSSL; do
+            if git -C "$bearssl_tmp" fetch -q --depth 1 "$url" "$bearssl_sha"; then
+                fetched=1
+                break 2
+            fi
+            echo "BearSSL fetch failed from $url (attempt $attempt)" >&2
+        done
+        sleep $((attempt * 15))
+    done
+    [[ $fetched = 1 ]] || { echo "could not fetch BearSSL $bearssl_sha" >&2; exit 1; }
+    git -C "$bearssl_tmp" checkout -q FETCH_HEAD
+    [[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]
+fi
+python3 - "$bearssl_src" <<'PY'
 from pathlib import Path
 import shutil
 import sys
@@ -56,4 +76,4 @@ for name in ('hash/md5.c', 'codec/dec32le.c', 'codec/enc32le.c',
     shutil.copy2(source / 'src' / name, target / 'src' / name)
 shutil.copy2(source / 'LICENSE.txt', target / 'LICENSE.txt')
 PY
-echo "Staged BearSSL portable AES, MD5, SHA-1 and SHA-384/512 ($bearssl_sha) for SWEET"
+echo "Staged BearSSL portable AES, MD5, SHA-1 and SHA-384/512 (source: ${vendored:-git $bearssl_sha}) for SWEET"
