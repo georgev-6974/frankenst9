@@ -1,4 +1,6 @@
-# iOS on the Samsung Galaxy S9+ (fork of the S8 port)
+# frankenstnine: iOS on the Samsung Galaxy S9+ (fork of the S8 port)
+
+*frankenstnine* = Frankenstein + S9 (a Galaxy S9+ stitched together from an iPhone X's iOS userland and an XNU kernel). Code names (`star2lte`, `dreamlte`, `a5xelte`) and file names are unchanged on purpose.
 
 > **Early fork, nothing runs yet.** Target: SM-G965F, Exynos 9810, `star2lte`. Start with [STAR2LTE_PROGRESS.md](STAR2LTE_PROGRESS.md). Everything below is the S8 (dreamlte) README, kept as donor reference.
 

@@ -1,6 +1,9 @@
-# Galaxy S9+ (SM-G965F, star2lte, Exynos 9810) port - progress
+# frankenstnine - Galaxy S9+ (SM-G965F, star2lte, Exynos 9810) port - progress
 
-# HANDOFF (read this first; last updated 2026-11-04, turn 4)
+Project name: **frankenstnine** (Frankenstein + S9; the user's choice, turn 5). Only display names use it; directory, patch and code names (`star2lte` etc.) stay.
+GitHub: user `georgev-6974`, repo created as `s9plus-ios` (renamed to `frankenstnine` in turn 5, see step C). Local folder is still `~/Downloads/ios-galaxy-s9plus`.
+
+# HANDOFF (read this first; last updated 2026-11-04, turn 6)
 
 **Goal**: boot an iOS 16 XNU kernel on a Galaxy S9+ (SM-G965F, Exynos 9810) via a custom loader in the BOOT partition (`sda10`), forked from the S8 port.
 **Standing rules** (AGENTS.md): never reuse an S8 address without a measurement; keep build success / kernel markers / screen reports / iOS runtime as separate claims; keep dumps, serials and Apple binaries out of git; confirm every destructive step with the user; donor files (`shim/dreamlte`, `tools/dreamlte`, `DREAMLTE_PROGRESS.md`, `NOTES.md`) are not edited.
@@ -43,8 +46,10 @@ Always start with `cd ~/Downloads/ios-galaxy-s9plus`.
    `git status --short | head -20`   (must NOT list WORK/, star2lte-facts/, *.img; if it does, stop and tell the assistant)
    `git commit -m "S9+ star2lte port"`   (if git asks who you are: `git config --global user.name "YOURNAME"` and `git config --global user.email "you@example.com"`, then repeat the commit)
    `gh repo create s9plus-ios --public --source=. --push`   (use `--private` if you accept the billing)
-   The push to `main` touching `xnu/patches/**` starts the workflow by itself: do not also start it by hand.
-   `gh run list`  then  `gh run watch`   (leave it running or check later with `gh run list`).
+   Observed (turn 6, corrects turn 5): the first push DID start a run (it appeared in `gh run list` about a minute later; "no runs found" was GitHub lag). A manual `gh workflow run xnu.yml -f machine_config=A5XELTE -f keep_going=true` also works but only needed if `gh run list` is still empty after 2-3 minutes. Only ONE run at a time: a new push/run on the same branch cancels the running one.
+   `gh run list`  then  `gh run watch`  (arrow to the run, Enter; Ctrl+C leaves it running).
+   First failure seen: run 41908009114 died after ~2 min in script `0020-stage-bearssl.sh` with `www.bearssl.org ... HTTP 502` (their server, not our code). Fixed in turn 6: the three staging scripts now retry, and BearSSL falls back to two GitHub mirrors (commit hash still verified). To retry only the failed part of a run without a new push: `gh run rerun RUN_ID --failed`.
+   To send updated files from the assistant: `cd ~/Downloads; unzip -o ios-galaxy-s9plus-progress.zip; cd ios-galaxy-s9plus; git add -A; git status --short; git commit -m "describe the change"; git push` (a push touching `xnu/patches/**` starts a new run by itself).
    Done when the run shows completed/success: `gh run download -n xnu-kernel -D xnu/out` then `ls -l xnu/out` (send that listing). If it failed: `gh run view --log-failed | tail -80`, paste it.
 **D. Build tools for the BOOT image** (the loader is compiled on your PC): `sudo pacman -S clang lld llvm`  (`aarch64-linux-gnu-gcc` is optional). Then, with the exact kernel file name from `ls xnu/out`:
    `bash tools/star2lte/make-boot.sh xnu/out/KERNELFILE star2lte-facts/boot-sda10.img out.img`
@@ -176,3 +181,18 @@ Two areas at the end of USERDATA (`sda25`), both clear of the 16 GB iOS root ima
 - Added: the facts subsection, the decision and risk entries, status lines, and new steps A-G (re-unzip, facts checks, GitHub build explained for a git newcomer, build tools `clang lld llvm`, BOOT size check).
 - Removed: the old numbered step list (replaced by A-G) and the "Done: step 3 pending" wording.
 - Verified: ADT still generates with the new base. NOT verified: loader compile (no clang in the assistant sandbox), the kernel build, any phone behaviour. Region names unknown until step B output.
+
+**Turn 5 (user pushed to GitHub; "no runs found"; asked to rename the project "frankenstnine")**
+- Observed: repo `georgev-6974/s9plus-ios` created and pushed OK (266 objects, 646 KiB, branch `main`). No workflow run started automatically, so my earlier "the push starts it by itself" was wrong for this first push.
+- Changed: step C now starts the workflow manually (`gh workflow run xnu.yml ...`) after checking `gh workflow list`; README and notes titles use the name frankenstnine (code/file/dir names unchanged); project-name and GitHub info added at the top of these notes.
+- Added: repo rename instructions (given in chat; user runs them).
+- Removed: the "do not start it by hand" advice.
+- Not verified: that the manual run succeeds; the repo rename.
+
+**Turn 6 (first CI run failed; user pasted the log)**
+- Observed: both runs (push 41908009114, manual 41908635689) go through checkout, Xcode/KDK setup, libpthread staging, then `0020-stage-bearssl.sh` fails: `fatal: unable to access https://www.bearssl.org/git/BearSSL/ ... 502`. The "Package build tree" step errors afterwards are only follow-ups (no build tree exists). No XNU source of ours was compiled yet, so 0125 is still not build-tested.
+- Changed: `xnu/patches/0020-stage-bearssl.sh` (3 attempts with 15/30/45 s waits; sources: bearssl.org, github.com/nickray/bearssl, github.com/tarigo/BearSSL; exact-commit check unchanged), `0019-stage-libpthread.sh` and `0026-stage-hfs.sh` (3 attempts each, same URL).
+- Corrected: turn 5's claim that the push did not start a run; step C text updated; added the `git add/commit/push` update procedure and `gh run rerun --failed`.
+- Added: nothing else. Removed: the "start it by hand" advice as the default.
+- Verified: bash syntax of all three scripts; retry/fallback loop simulated with a fake `git` (falls through the three URLs). NOT verified: that either GitHub mirror actually contains commit 7bea48e5 (if neither does and bearssl.org stays down the run fails with "could not fetch BearSSL"); the real CI run.
+

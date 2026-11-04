@@ -18,8 +18,12 @@ pthread_sha=a6c70ca0e544347a0377babf748f831577ec24f9
 pthread_tmp=$(mktemp -d)
 trap 'rm -rf "$pthread_tmp"' EXIT
 git init -q "$pthread_tmp"
-git -C "$pthread_tmp" fetch -q --depth 1 \
-    https://github.com/apple-oss-distributions/libpthread "$pthread_sha"
+for attempt in 1 2 3; do
+    git -C "$pthread_tmp" fetch -q --depth 1 \
+        https://github.com/apple-oss-distributions/libpthread "$pthread_sha" && break
+    [[ $attempt = 3 ]] && exit 1
+    sleep $((attempt * 15))
+done
 git -C "$pthread_tmp" checkout -q FETCH_HEAD
 [[ "$(git -C "$pthread_tmp" rev-parse HEAD)" == "$pthread_sha" ]]
 
