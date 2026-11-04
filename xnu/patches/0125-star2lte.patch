@@ -1,0 +1,155 @@
+diff --git bsd/dev/a5xelte_touch.c bsd/dev/a5xelte_touch.c
+index ba647a8..75ce726 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -616,7 +616,7 @@ a5touch_start_early(vm_offset_t nfc, vm_offset_t alive)
+ 	}
+ }
+ 
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ /*
+  * Galaxy S8 I2C devices, polled (no XNU interrupt routing for them).
+  * The loader (shim/dreamlte) ungates both USI blocks with their clock on
+@@ -920,10 +920,28 @@ dreamlte_touch_start(void)
+ }
+ #endif /* DREAMLTE */
+ 
++#if defined(STAR2LTE)
++/*
++ * S9+: the S6SY761/MAX77865 drivers above use S8 USI/HSI2C/ALIVE addresses
++ * and are compiled out. The S9+ touch is a sec_ts behind ACPM-managed
++ * rails and the fuel gauge is unported: no reading, so SweetBattery
++ * publishes its static fallback.
++ */
++int dreamlte_battery_read(unsigned *percent, unsigned *mv, int *ma,
++    int *external, int *charging, int *full);
++int
++dreamlte_battery_read(unsigned *percent, unsigned *mv, int *ma,
++    int *external, int *charging, int *full)
++{
++	(void)percent; (void)mv; (void)ma; (void)external; (void)charging; (void)full;
++	return -1;
++}
++#endif /* STAR2LTE */
++
+ void
+ a5xelte_touch_probe(void)
+ {
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ 	dreamlte_touch_start();   /* the A5 path below stays off */
+ #endif
+ 	int enabled = A5_TOUCH_DEFAULT; /* A5 touch: off on the S8 */
+diff --git iokit/Kernel/arm/SweetCPU.cpp iokit/Kernel/arm/SweetCPU.cpp
+index 5bd24a7..dc8b6bd 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -87,7 +87,12 @@ SweetCPU::start(IOService *provider)
+ #if defined(A5XELTE)
+ 	/* Linux's Exynos7580 DT: logical 0..3 = MPIDR 0..3;
+ 	 * logical 4..7 = MPIDR 0x100..0x103. */
+-#if defined(DREAMLTE)
++#if defined(STAR2LTE)
++	/* Exynos 9810: the boot cluster comes first (mkadt_star2lte.py). */
++	uint32_t boot_cluster = A5_BOOT_MPIDR & 0x100U;
++	uint32_t expected_mpidr = cpu->cpu_id < 4 ? boot_cluster + cpu->cpu_id :
++	    (boot_cluster ^ 0x100U) + cpu->cpu_id - 4;
++#elif defined(DREAMLTE)
+ 	/* Exynos 8895: logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster);
+ 	 * logical 4..7 = Mongoose M2 MPIDR 0..3. */
+ 	uint32_t expected_mpidr = cpu->cpu_id < 4 ? 0x100U + cpu->cpu_id :
+@@ -296,7 +301,7 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	vm_offset_t entry = ml_static_vtop((vm_offset_t)&sweet_secondary_entry);
+ 	IOLog(CPU_PORT_NAME " CPU: cpu=%u CPU_ON target=0x%x entry_pa=0x%llx context=%u\n",
+ 	    getCPUNumber(), cpu->phys_id, (uint64_t)entry, getCPUNumber());
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ 	{
+ 		/*
+ 		 * The entry is in the high RAM bank (0x88xxxxxxx); the loader probe
+diff --git iokit/Kernel/arm/SweetFramebuffer.cpp iokit/Kernel/arm/SweetFramebuffer.cpp
+index ec6b9da..cecc10d 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -316,7 +316,7 @@ get32(const uint8_t *p, uint32_t off)
+ 	return v;
+ }
+ 
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ /*
+  * Boot 31 video: torn frames (top half of one screen, bottom of the
+  * next). DECON_F fetches the panel memory at 60 Hz (boot 30 probe: 30
+@@ -382,7 +382,7 @@ AppleCLCD::present(const uint8_t *rec)
+ {
+ 	uint32_t mask = get32(rec, 0x104);
+ 	IOLockLock(fPresentLock);
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ 	sweet_fb_wait_frame_done();
+ #endif
+ 
+diff --git pexpert/arm/pe_serial.c pexpert/arm/pe_serial.c
+index 1966bdd..fabd578 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -721,7 +721,7 @@ static volatile uint32_t *fbcon_base;
+ static uint32_t fbcon_width, fbcon_height, fbcon_stride;
+ static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
+ 
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ /*
+  * Copy of the console in TWRP's ramoops pmsg zone, in persistent_ram
+  * format (sig "DBGC", start, size, ring data), appended to the loader's
+@@ -814,7 +814,7 @@ fbcon_transmit_ready(void)
+ static void
+ fbcon_transmit_data(uint8_t c)
+ {
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ 	klog_putc(c);
+ #endif
+ 	if (c == '\r') {
+@@ -896,7 +896,7 @@ fbcon_probe(void)
+ 	}
+ 	sweet_early_mark(17, "fbcon config read; mapping");
+ 	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
+-#if defined(DREAMLTE)
++#if defined(DREAMLTE) && !defined(STAR2LTE)
+ 	klog_init();
+ #endif
+ 	sweet_early_mark(18, "fbcon mapping returned");
+diff --git pexpert/pexpert/arm64/A5XELTE.h pexpert/pexpert/arm64/A5XELTE.h
+index b6f812d..d79dd9b 100644
+--- a/pexpert/pexpert/arm64/A5XELTE.h
++++ b/pexpert/pexpert/arm64/A5XELTE.h
+@@ -61,6 +61,27 @@
+ #define A5_TOUCH_DEFAULT              1
+ #endif
+ 
++/*
++ * Samsung Galaxy S9+ (SM-G965F, star2lte, Exynos 9810) build, layered on
++ * the DREAMLTE settings above (same 0xcc000000 1440x2960 framebuffer,
++ * GIC-400, 26 MHz physical timer PPI 14). Measured S9+ facts:
++ * docs/star2lte-facts, STAR2LTE_PROGRESS.md. Nothing here ran on a phone.
++ */
++#define STAR2LTE                      1
++#if defined(STAR2LTE)
++/* No ramoops on this TWRP: the entry marker lives in loader RAM just above
++ * the 63-block LDRLOG buffer (shim/star2lte/loader.c LDR_LOG_PHYS +
++ * 63 * 4096), in the high bank outside the XNU window. */
++#undef A5_ENTRY_MARKER_PHYS
++#define A5_ENTRY_MARKER_PHYS          0x8f013f000
++/* The boot CPU is whatever the ADT calls logical CPU 0 (the loader banner
++ * prints the real MPIDR_EL1; rerun make-boot.sh --boot-mpidr if it differs). */
++#undef A5_BOOT_MPIDR
++#define A5_BOOT_MPIDR                 (ml_get_topology_info()->boot_cpu->phys_id)
++#undef A5_KEYS_DEFAULT
++#define A5_KEYS_DEFAULT               0           /* S8 GPIO bases do not apply */
++#endif
++
+ #ifndef ASSEMBLER
+ #define PLATFORM_PANIC_LOG_DISABLED
+ #endif

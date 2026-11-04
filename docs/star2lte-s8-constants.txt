@@ -1,0 +1,109 @@
+# S8 (dreamlte) hardware constants to re-measure for star2lte
+# file:line: match (auto-generated; donor values, NOT valid for Exynos 9810 until measured)
+shim/dreamlte/display_probe.c:7: * 0x12860000 (SHADOW_REG_UPDATE_REQ 0x60, WIN_CONTROL_0(w) 0x1000 + w*0x30)
+shim/dreamlte/display_probe.c:9: * (0x128b1000 + n*0x1000, n = 0..5; the sixth DPP's at 0x128b7000):
+shim/dreamlte/display_probe.c:20:#define DECON			0x12860000UL
+shim/dreamlte/display_probe.c:23:#define FB_PHYS			0xcc000000u
+shim/dreamlte/display_probe.c:24:#define FB_STRIDE		(1440u * 4)
+shim/dreamlte/display_probe.c:28:	0x128b1000, 0x128b2000, 0x128b3000, 0x128b4000, 0x128b5000, 0x128b7000,
+shim/dreamlte/display_probe.c:30:static const uintptr_t sysmmu[3] = { 0x12900000, 0x12910000, 0x12920000 };
+shim/dreamlte/display_probe.c:79:		0x12851000, 0x12852000, 0x12853000, 0x12854000, 0x12855000, 0x12890000,
+shim/dreamlte/display_probe.c:140:		out("no IDMA reads 0xcc000000: no flip test\n");
+shim/dreamlte/loader.c:7: * (the 2 GiB bank at 0x880000000, free of firmware carve-outs), build
+shim/dreamlte/loader.c:24:#define UFS_PROBE_DMA		0x8f0000000UL	/* high bank, outside XNU's window */
+shim/dreamlte/loader.c:27:#define FB_BASE			0xcc000000UL	/* s3cfb.bootloaderfb */
+shim/dreamlte/loader.c:28:#define FB_W			1440
+shim/dreamlte/loader.c:29:#define FB_H			2960
+shim/dreamlte/loader.c:31:#define DECON_TRIG		0x12860070UL	/* DECON_F HW_SW_TRIG_CONTROL */
+shim/dreamlte/loader.c:33:#define RAMOOPS_CONSOLE		0x92080000UL	/* TWRP ramoops console zone */
+shim/dreamlte/loader.c:36:#define XNU_MARKER_PHYS		0x920ff000UL	/* A5_ENTRY_MARKER_PHYS in 0124 */
+shim/dreamlte/loader.c:39:#define XNU_RAM_BASE		0x880000000UL	/* 2 GiB high bank */
+shim/dreamlte/loader.c:40:#define XNU_RAM_END		0x900000000UL
+shim/dreamlte/loader.c:54:#define RAMOOPS_PMSG		0x92180000UL	/* after dump, console, ftrace */
+shim/dreamlte/loader.c:344:		return fail("payload RAM outside the 0x880000000 bank");
+shim/dreamlte/pmic.c:2: * Galaxy S8 PMIC (S2MPS17) access over the Exynos SPEEDY bus, MMU off.
+shim/dreamlte/pmic.c:6: * Its rails are S2MPS17 LDO34 "tsp_io" 1.85 V and LDO35 "tsp_avdd" 3.0 V;
+shim/dreamlte/pmic.c:7: * S-Boot leaves them off and Samsung's Linux turns them on. The SPEEDY
+shim/dreamlte/pmic.c:9: * drivers/samsung/exynos-speedy.c); the RTC layout follows Samsung's
+shim/dreamlte/pmic.c:10: * rtc-s2mp.h (RTC on SPEEDY slave 2, binary counters from 0x04).
+shim/dreamlte/pmic.c:15:#define SPEEDY			0x15b50000UL
+shim/dreamlte/pmic.c:64:static int speedy(unsigned slave, unsigned reg, int write, uint8_t val)
+shim/dreamlte/pmic.c:66:	wr(SPEEDY + SP_FIFO_CTRL, SP_FIFO_RESET);
+shim/dreamlte/pmic.c:68:	wr(SPEEDY + SP_FIFO_CTRL, SP_LEN(1, 1));
+shim/dreamlte/pmic.c:69:	wr(SPEEDY + SP_INT_ENABLE, write ? 0x80300011u : 0x80070301u);
+shim/dreamlte/pmic.c:70:	wr(SPEEDY + SP_INT_STATUS, 0xffffffffu);
+shim/dreamlte/pmic.c:71:	wr(SPEEDY + SP_CMD, SP_RANDOM | (write ? SP_WRITE : 0) |
+shim/dreamlte/pmic.c:74:		wr(SPEEDY + SP_TX_DATA, val);
+shim/dreamlte/pmic.c:77:		uint32_t s = rd(SPEEDY + SP_INT_STATUS);
+shim/dreamlte/pmic.c:79:			wr(SPEEDY + SP_INT_STATUS, 0xffffffffu);
+shim/dreamlte/pmic.c:80:			return write ? 0 : (int)(rd(SPEEDY + SP_RX_DATA) & 0xff);
+shim/dreamlte/pmic.c:88:	int v = speedy(slave, reg, 0, 0);
+shim/dreamlte/pmic.c:112:	out("PMIC (S2MPS17 over SPEEDY 0x15b50000)\n");
+shim/dreamlte/pmic.c:118:	int r1 = speedy(SLAVE_PMIC, L34CTRL, 1, L34_1V85);
+shim/dreamlte/pmic.c:119:	int r2 = speedy(SLAVE_PMIC, L35CTRL, 1, L35_3V0);
+shim/dreamlte/pmic.c:126:	int u = speedy(SLAVE_RTC, RTC_UPDATE, 0, 0);
+shim/dreamlte/pmic.c:127:	speedy(SLAVE_RTC, RTC_UPDATE, 1, (uint8_t)((u < 0 ? 0 : u) | RTC_RUDR));
+shim/dreamlte/pmic.c:133:		int v = speedy(SLAVE_RTC, RTC_SEC + i, 0, 0);
+shim/dreamlte/smp_probe.c:16:#define PMU		0x16480000UL
+shim/dreamlte/smp_probe.c:80:#define DD(n)		(0x16840000UL + (n) * 0x400)	/* DDn_DD_DA_INPUT_0 */
+shim/dreamlte/smp_probe.c:83: * Mongoose (CLUSTER0, MPIDR 0x0-0x3) bring-up test on core 0x000, in the
+shim/dreamlte/touch_probe.c:4: * The G950F panel is a Samsung S6SY761 ("sec,sec_ts" in the stock DT,
+shim/dreamlte/touch_probe.c:5: * confirmed bound at i2c-5 0x48 under TWRP) on hsi2c_23 = USI09 of PERIC1
+shim/dreamlte/touch_probe.c:6: * (0x108e0000), SCL/SDA gpe3-1/gpe3-0 function 2, interrupt gpa1-0 active
+shim/dreamlte/touch_probe.c:17:#define CMU_TOP			0x15a80000UL
+shim/dreamlte/touch_probe.c:18:#define CMU_PERIC1		0x10800000UL
+shim/dreamlte/touch_probe.c:26:#define SYSREG_USI09		0x1082101cUL
+shim/dreamlte/touch_probe.c:27:#define USI_V1_I2C0_1		0x3u			/* stock "hsi2c0_hsi2c1" */
+shim/dreamlte/touch_probe.c:28:#define GPE3			(0x10980000UL + 0x120)	/* CON, DAT, PUD, DRV */
+shim/dreamlte/touch_probe.c:29:#define GPA1			(0x164b0000UL + 0x040)
+shim/dreamlte/touch_probe.c:31:#define HSI2C			0x108e0000UL
+shim/dreamlte/touch_probe.c:111:static void hsi2c_reset(void)
+shim/dreamlte/touch_probe.c:177:	hsi2c_reset();
+shim/dreamlte/touch_probe.c:201:	out("TOUCH probe (S6SY761 hsi2c_23 0x108e0000)\n");
+shim/dreamlte/touch_probe.c:232:	out("hsi2c regs: ");
+shim/dreamlte/touch_probe.c:238:	hsi2c_reset();
+shim/dreamlte/touch_probe.c:283: * Battery: MAX77865 on hsi2c_32 = second HSI2C of USI13 (0x10970000), pins
+shim/dreamlte/touch_probe.c:285: * "uart_hsi2c1" (v1 SW_CONF 0xa). Fuel gauge 0x36, charger 0x69. The
+shim/dreamlte/touch_probe.c:291:#define SYSREG_USI13		0x1082102cUL
+shim/dreamlte/touch_probe.c:293:#define GPE5			(0x10980000UL + 0x0c0)
+shim/dreamlte/touch_probe.c:308:	out("BATTERY (MAX77865 hsi2c_32 0x10970000)\n");
+shim/dreamlte/touch_probe.c:318:	bus = 0x10970000UL;
+shim/dreamlte/touch_probe.c:319:	hsi2c_reset();
+shim/dreamlte/ufs_probe.c:19:#define HCI		0x11120000UL	/* UFSHCI standard registers */
+shim/dreamlte/ufs_probe.c:20:#define VS_HCI		0x11121100UL	/* Exynos vendor HCI registers */
+shim/dreamlte/ufs_probe.c:21:#define UFSP		0x11130000UL	/* UFS protector (FMP/SMU) */
+tools/mkadt_dreamlte.py:6:  - XNU RAM: the 2 GiB bank 0x880000000-0x8ffffffff, free of firmware
+tools/mkadt_dreamlte.py:8:  - GIC-400: GICD 0x10201000, GICC 0x10202000; virtual timer PPI 11 = INTID 27
+tools/mkadt_dreamlte.py:10:  - CPUs: logical 0-3 = Cortex-A53 MPIDR 0x100-0x103 (S-Boot boots 0x100),
+tools/mkadt_dreamlte.py:11:    logical 4-7 = Mongoose M2 MPIDR 0-3; cpus=N still selects a prefix
+tools/mkadt_dreamlte.py:12:  - S-Boot framebuffer 1440x2960 XRGB8888 at 0xcc000000
+tools/mkadt_dreamlte.py:23:DRAM_BASE = 0x880000000
+tools/mkadt_dreamlte.py:27:FB_PHYS, FB_W, FB_H = 0xcc000000, 1440, 2960
+tools/mkadt_dreamlte.py:95:    set_prop(arm_io, 'ranges', mkadt.u64(0, 0x10000000, 0xf0000000))
+tools/mkadt_dreamlte.py:113:        # 1440x2960 canvas here and stalled after the first SwapBegin.
+tools/mkadt_dreamlte.py:129:        ('reg', mkadt.u64(0x11120000, 0x200, 0x11121100, 0x200)),
+tools/dreamlte/apply-dreamlte.py:39:    '#define A5_FB_PHYS                    0xcc000000  /* s3cfb.bootloaderfb */\n'
+tools/dreamlte/apply-dreamlte.py:40:    '#define A5_FB_WIDTH                   1440\n'
+tools/dreamlte/apply-dreamlte.py:41:    '#define A5_FB_HEIGHT                  2960\n'
+tools/dreamlte/apply-dreamlte.py:43:    '#define A5_FB_2M_BLOCKS               9           /* 1440*2960*4 bytes */\n'
+tools/dreamlte/apply-dreamlte.py:44:    '#define A5_ENTRY_MARKER_PHYS          0x920ff000  /* slot in the loader\'s pstore text */\n'
+tools/dreamlte/apply-dreamlte.py:45:    '#define A5_BOOT_MPIDR                 0x100       /* first Cortex-A53 */\n'
+tools/dreamlte/apply-dreamlte.py:48:    '#define A5_KLOG_PHYS                  0x92180000  /* TWRP ramoops pmsg zone */\n'
+tools/dreamlte/apply-dreamlte.py:64:    '#define A5_BOOT_MPIDR                 0\n'
+tools/dreamlte/apply-dreamlte.py:109:     '\t/* Exynos 8895: logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster);\n'
+tools/dreamlte/apply-dreamlte.py:110:     '\t * logical 4..7 = Mongoose M2 MPIDR 0..3. */\n'
+tools/dreamlte/apply-dreamlte.py:119:     '\t\tpanic(CPU_PORT_NAME " CPU: expected boot MPIDR 0 and logical CPU 0");\n',
+tools/dreamlte/apply-dreamlte.py:121:     '\tif (topology->boot_cpu->cpu_id != 0 || topology->boot_cpu->phys_id != A5_BOOT_MPIDR) {\n'
+tools/dreamlte/apply-dreamlte.py:122:     '\t\tpanic(CPU_PORT_NAME " CPU: expected boot MPIDR %#x and logical CPU 0", A5_BOOT_MPIDR);\n', 1)
+tools/dreamlte/apply-dreamlte.py:430:# 1440x2960 panel), like SWEET does: iOS has no layout data for 1440x2960.
+tools/dreamlte/apply-dreamlte.py:458:# S2MPS17 RTC and passes s8rtc = UTC seconds at system-counter zero.
+tools/dreamlte/apply-dreamlte.py:527:     '\t\tsweet_fb_decon = ml_io_map(0x12860000, 0x1000);\n'
+tools/dreamlte/apply-dreamlte.py:602:# S8 S6SY761 driver (dreamlte_touch.c next to this script), started from
+tools/dreamlte/apply-dreamlte.py:614:# the A53 at MPIDR 0x101 started. The Mongoose cluster also needs its
+tools/dreamlte/apply-dreamlte.py:623:     '\tif (start_paddr != 0 || arg_paddr != 0 || cpu->phys_id == A5_BOOT_MPIDR ||\n', 1),
+tools/dreamlte/apply-dreamlte.py:634:     '\t\tconst uint64_t tramp_pa = 0x8f000000ULL;\n'
+tools/dreamlte/apply-dreamlte.py:649:     '\t\t\tpmu = ml_io_map(0x16480000, 0x10000);\n'
+tools/dreamlte/apply-dreamlte.py:680:    ('#define A5_ALIVE_PA 0x139b0000u\n',
+tools/dreamlte/apply-dreamlte.py:682:     '#define A5_ALIVE_PA 0x164b0000u            /* Exynos 8895 pinctrl ALIVE */\n'
+tools/dreamlte/apply-dreamlte.py:684:     '#define A5_ALIVE_PA 0x139b0000u\n'
+tools/dreamlte/make-boot.sh:17:[[ " $args " == *" sweetfb_native=1 "* ]] && canvas=1440x2960
