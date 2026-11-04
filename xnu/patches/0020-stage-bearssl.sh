@@ -22,7 +22,10 @@ if [[ -n "$vendored" ]]; then
     # release/Debian tarball (one top directory holding inc/ and src/).
     tar -xf "$vendored" -C "$bearssl_tmp"
     if [[ ! -d "$bearssl_tmp/inc" ]]; then
-        bearssl_src=$(find "$bearssl_tmp" -mindepth 2 -maxdepth 2 -type d -name inc -printf '%h\n' | head -1)
+        bearssl_src=
+        for d in "$bearssl_tmp"/*/; do   # portable: macOS find has no -printf
+            if [[ -d "${d}inc" && -d "${d}src" ]]; then bearssl_src=${d%/}; break; fi
+        done
         [[ -n "$bearssl_src" && -d "$bearssl_src/src" ]] || { echo "vendored $vendored has no inc/ + src/" >&2; exit 1; }
     fi
     [[ "$vendored" == *"$bearssl_sha"* ]] || echo "WARNING: vendored BearSSL is not the pinned commit $bearssl_sha: $vendored" >&2
