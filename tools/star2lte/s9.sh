@@ -20,18 +20,25 @@ need_adb() { [ "$(adb get-state 2>/dev/null)" = recovery ] || { echo "Phone must
 cmd=${1:-}; shift || true
 case $cmd in
 build)
-  k=${1:-$(ls -t xnu/out/* 2>/dev/null | head -1)}
-  [ -f "$k" ] || { echo "no kernel file found in xnu/out (give it as an argument)"; exit 1; }
-  echo "kernel: $k"; echo "boot-args: $ARGS"
+  rm -f out.img      # a failed build must never leave an old image to flash
+  k=${1:-}
+  if [ -z "$k" ]; then   # newest real Mach-O kernel in xnu/out (skips .txt, .dSYM, logs)
+    for f in $(ls -t xnu/out/* 2>/dev/null); do
+      [ -f "$f" ] && [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = cffaedfe ] && { k=$f; break; }
+    done
+  fi
+  [ -f "$k" ] || { echo "no Mach-O kernel found in xnu/out (give the file as an argument); contents:"; ls -l xnu/out; exit 1; }
+  echo "kernel: $k  ($(stat -c '%y' "$k" | cut -d. -f1))"; echo "boot-args: $ARGS"
   bash tools/star2lte/make-boot.sh "$k" "$STOCK" out.img --boot-mpidr "$MPIDR" -- $ARGS
   sz=$(stat -c %s out.img); echo "out.img = $sz bytes (limit $MAXSZ)"
   [ "$sz" -le "$MAXSZ" ] || { echo "TOO BIG, do not flash"; rm -f out.img; exit 1; }
-  echo "OK. Next: bash tools/star2lte/s9.sh flash"
+  echo "BUILD OK. Next: bash tools/star2lte/s9.sh flash"
   ;;
 flash)
   img=${1:-out.img}; [ -f "$img" ] || { echo "$img not found: run build first"; exit 1; }
   sz=$(stat -c %s "$img"); [ "$sz" -le "$MAXSZ" ] || { echo "image too big"; exit 1; }
   need_adb
+  echo "Image built: $(stat -c '%y' "$img" | cut -d. -f1)"
   echo "About to write $img ($sz bytes) to BOOT (sda10). Recovery, EFS and bootloaders are not touched."
   echo "A stock backup must exist: $BACKUP"; [ -f "$BACKUP" ] || { echo "backup missing, stop"; exit 1; }
   read -r -p "Type yes to flash: " a; [ "$a" = yes ] || { echo aborted; exit 1; }

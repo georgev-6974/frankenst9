@@ -1,20 +1,35 @@
+diff --git bsd/kern/bsd_init.c bsd/kern/bsd_init.c
+index d26e1ee..f7c9cb1 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -490,7 +490,7 @@ bsd_init(void)
+ 	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_BSD_INIT);
+ #endif
+ 
+-#define DEBUG_BSDINIT 0
++#define DEBUG_BSDINIT 1   /* star2lte (0126): kprintf every bsd_init step */
+ 
+ #if DEBUG_BSDINIT
+ #define bsd_init_kprintf(x, ...) kprintf("bsd_init: " x, ## __VA_ARGS__)
 diff --git osfmk/arm64/cpu.c osfmk/arm64/cpu.c
-index b082a10..39195f5 100644
+index b082a10..4e7c425 100644
 --- a/osfmk/arm64/cpu.c
 +++ b/osfmk/arm64/cpu.c
-@@ -583,6 +583,12 @@ cpu_idle(void)
- #if defined(APPLETYPHOON)
- 		// <rdar://problem/15827409> CPU1 Stuck in WFIWT Because of MMU Prefetch
- 		typhoon_prepare_for_wfi();
-+#endif
+@@ -488,6 +488,14 @@ cpu_idle(void)
+ 	uint64_t        new_idle_timeout_ticks = 0x0ULL, lastPop;
+ 	bool idle_disallowed = false;
+ 
 +#if defined(A5XELTE)
-+		{
-+			extern void a5xelte_idle_diag(void);
-+			a5xelte_idle_diag();   /* star2lte diagnostics (0126) */
-+		}
- #endif
- 		__builtin_arm_dsb(DSB_SY);
- #if HAS_RETENTION_STATE
++	{
++		/* star2lte diagnostics (0126): every entry, before any early exit,
++		 * so a CPU that spins here without reaching WFI is visible too. */
++		extern void a5xelte_idle_diag(void);
++		a5xelte_idle_diag();
++	}
++#endif
+ 	if (__improbable((!idle_enable))) {
+ 		idle_disallowed = true;
+ 	} else if (__improbable(cpu_data_ptr->cpu_signal & SIGPdisabled)) {
 diff --git osfmk/arm64/sleh.c osfmk/arm64/sleh.c
 index 87fb8a8..263fa06 100644
 --- a/osfmk/arm64/sleh.c
@@ -32,10 +47,10 @@ index 87fb8a8..263fa06 100644
  	const uint32_t timer_intid = A5XELTE_VTIMER_INTID;
  #else
 diff --git osfmk/kern/startup.c osfmk/kern/startup.c
-index bec97fb..ad176dd 100644
+index bec97fb..bac518d 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -768,6 +768,13 @@ kernel_bootstrap_thread(void)
+@@ -768,9 +768,19 @@ kernel_bootstrap_thread(void)
  	kernel_bootstrap_log("kernel_do_post - done");
  #endif /* CONFIG_XNUPOST */
  
@@ -49,6 +64,12 @@ index bec97fb..ad176dd 100644
  #ifdef  IOKIT
  	kernel_bootstrap_log("PE_lockdown_iokit");
  	PE_lockdown_iokit();
++#if defined(A5XELTE)
++	kprintf("S9DIAG: PE_lockdown_iokit returned\n");
++#endif
+ #endif
+ 	/*
+ 	 * max_cpus must be nailed down by the time PE_lockdown_iokit() finishes,
 diff --git pexpert/arm/pe_fiq.c pexpert/arm/pe_fiq.c
 index 0207f32..32bd5d9 100644
 --- a/pexpert/arm/pe_fiq.c
