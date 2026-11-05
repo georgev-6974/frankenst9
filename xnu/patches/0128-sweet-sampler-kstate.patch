@@ -1,0 +1,32 @@
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 100d5c2..8b223e5 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -18,12 +18,17 @@ sweet_sample_task(const char *name, int pid, task_t task)
+ 	extern uint32_t pmap_find_phys(struct pmap *, uint64_t);
+ 	extern struct pmap *get_task_pmap(task_t);
+ 	extern unsigned long long ml_phys_read_double_64(uint64_t);
++	extern unsigned int vm_page_free_count, vm_page_free_reserved, vm_page_free_target,
++	    vm_page_active_count, vm_page_inactive_count, vm_page_wire_count;
+ 
+ 	if (sr != NULL) {
+ 		slide = sr->sr_slide;
+ 		vm_shared_region_deallocate(sr);
+ 	}
+ 	(void)map;
++	printf("SMP vm free %u reserved %u target %u active %u inactive %u wired %u\n",
++	    vm_page_free_count, vm_page_free_reserved, vm_page_free_target,
++	    vm_page_active_count, vm_page_inactive_count, vm_page_wire_count);
+ 	printf("SMP %s[%d] slide 0x%llx mh 0x%llx\n", name, pid, slide, task->mach_header_vm_address);
+ 
+ 	task_lock(task);
+@@ -39,6 +44,9 @@ sweet_sample_task(const char *name, int pid, task_t task)
+ 		fp = get_saved_state_fp(ss);
+ 		n = snprintf(line, sizeof(line), "SMP %s t%d pc 0x%llx lr 0x%llx sp 0x%llx bt", name, tn++,
+ 		    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss));
++		printf("SMP %s t%d kernel state 0x%x wait_event 0x%llx cont %p kstack %p\n", name, tn - 1,
++		    (unsigned)thread->state, (unsigned long long)thread->wait_event,
++		    (void *)thread->continuation, (void *)thread->kernel_stack);
+ 		/* print pc/lr/sp first: the walk below used to wedge the kernel */
+ 		printf("SMP %s t%d regs pc 0x%llx lr 0x%llx sp 0x%llx fp 0x%llx\n", name, tn - 1,
+ 		    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss), fp);
