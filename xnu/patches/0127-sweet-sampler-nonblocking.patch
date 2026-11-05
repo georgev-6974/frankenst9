@@ -1,0 +1,47 @@
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 399f08a..100d5c2 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -15,11 +15,15 @@ sweet_sample_task(const char *name, int pid, task_t task)
+ 	int tn = 0;
+ 	thread_t thread;
+ 	vm_shared_region_t sr = vm_shared_region_get(task);
++	extern uint32_t pmap_find_phys(struct pmap *, uint64_t);
++	extern struct pmap *get_task_pmap(task_t);
++	extern unsigned long long ml_phys_read_double_64(uint64_t);
+ 
+ 	if (sr != NULL) {
+ 		slide = sr->sr_slide;
+ 		vm_shared_region_deallocate(sr);
+ 	}
++	(void)map;
+ 	printf("SMP %s[%d] slide 0x%llx mh 0x%llx\n", name, pid, slide, task->mach_header_vm_address);
+ 
+ 	task_lock(task);
+@@ -35,11 +39,25 @@ sweet_sample_task(const char *name, int pid, task_t task)
+ 		fp = get_saved_state_fp(ss);
+ 		n = snprintf(line, sizeof(line), "SMP %s t%d pc 0x%llx lr 0x%llx sp 0x%llx bt", name, tn++,
+ 		    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss));
++		/* print pc/lr/sp first: the walk below used to wedge the kernel */
++		printf("SMP %s t%d regs pc 0x%llx lr 0x%llx sp 0x%llx fp 0x%llx\n", name, tn - 1,
++		    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss), fp);
+ 		for (int i = 0; i < 16 && fp != 0 && (fp & 7) == 0 && n < (int)sizeof(line) - 20; i++) {
+ 			uint64_t frame[2];
+-			if (vm_map_read_user(map, fp, frame, sizeof(frame)) != KERN_SUCCESS) {
++			uint64_t pa;
++			uint32_t ppn;
++			/* resident pages only: no fault, no sleep (vm_map_read_user can block) */
++			if ((fp & PAGE_MASK) > PAGE_SIZE - 16) {
+ 				break;
+ 			}
++			ppn = pmap_find_phys(get_task_pmap(task), fp);
++			if (ppn == 0) {
++				n += snprintf(line + n, sizeof(line) - n, " <nr>");
++				break;
++			}
++			pa = ((uint64_t)ppn << PAGE_SHIFT) | (fp & PAGE_MASK);
++			frame[0] = ml_phys_read_double_64(pa);
++			frame[1] = ml_phys_read_double_64(pa + 8);
+ 			n += snprintf(line + n, sizeof(line) - n, " 0x%llx", frame[1]);
+ 			if (frame[0] <= fp) {
+ 				break;
