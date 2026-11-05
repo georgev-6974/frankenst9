@@ -31,32 +31,36 @@ index b082a10..4e7c425 100644
  		idle_disallowed = true;
  	} else if (__improbable(cpu_data_ptr->cpu_signal & SIGPdisabled)) {
 diff --git osfmk/arm64/sleh.c osfmk/arm64/sleh.c
-index 87fb8a8..263fa06 100644
+index 87fb8a8..43a5db8 100644
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -1865,6 +1865,11 @@ sleh_irq(arm_saved_state_t *state)
+@@ -1865,6 +1865,13 @@ sleh_irq(arm_saved_state_t *state)
  	extern uint32_t a5xelte_irq_ack(void);
  	extern void a5xelte_irq_eoi(uint32_t);
  	iar = a5xelte_irq_ack();
 +	{
 +		extern volatile uint32_t a5xelte_irq_count, a5xelte_last_iar;
++		extern void a5xelte_hb_irq(uint64_t pc, uint64_t lr);
 +		a5xelte_irq_count++;      /* star2lte diagnostics (0126) */
 +		a5xelte_last_iar = (uint32_t)iar;
++		a5xelte_hb_irq(get_saved_state_pc(state), get_saved_state_lr(state));
 +	}
  	#define A5_IRQ_EOI(value) a5xelte_irq_eoi((uint32_t)(value))
  	const uint32_t timer_intid = A5XELTE_VTIMER_INTID;
  #else
 diff --git osfmk/kern/startup.c osfmk/kern/startup.c
-index bec97fb..bac518d 100644
+index bec97fb..80616dc 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -768,9 +768,19 @@ kernel_bootstrap_thread(void)
+@@ -768,9 +768,21 @@ kernel_bootstrap_thread(void)
  	kernel_bootstrap_log("kernel_do_post - done");
  #endif /* CONFIG_XNUPOST */
  
 +#if defined(A5XELTE)
 +	{
 +		extern volatile int a5xelte_diag_on;
++		extern void a5xelte_hb_init(void);
++		a5xelte_hb_init();
 +		a5xelte_diag_on = 1;   /* star2lte idle diagnostics (0126) */
 +		kprintf("S9DIAG: armed before PE_lockdown_iokit\n");
 +	}
@@ -71,28 +75,103 @@ index bec97fb..bac518d 100644
  	/*
  	 * max_cpus must be nailed down by the time PE_lockdown_iokit() finishes,
 diff --git pexpert/arm/pe_fiq.c pexpert/arm/pe_fiq.c
-index 0207f32..32bd5d9 100644
+index 0207f32..49ee0cf 100644
 --- a/pexpert/arm/pe_fiq.c
 +++ b/pexpert/arm/pe_fiq.c
-@@ -284,6 +284,50 @@ a5xelte_gic_diagnostics(unsigned int logical, const char *stage)
+@@ -284,6 +284,118 @@ a5xelte_gic_diagnostics(unsigned int logical, const char *stage)
  	    a5_gic_read32(a5_gicc_base, 0x018));
  }
  
 +/*
-+ * star2lte diagnostics (patch 0126): state of the timer and the GIC each time
-+ * the CPU is about to idle, so a screen photo shows why it never wakes up.
-+ * Printed only when something changed (or every 64th idle); armed by
-+ * kernel_bootstrap_thread just before PE_lockdown_iokit().
++ * star2lte diagnostics (patch 0126 v3).
++ * 1) Heartbeat drawn straight into the boot framebuffer (no console, no locks, safe from
++ *    IRQ context): four rows of 8 hex digits at the top-left of the screen:
++ *      row0 = PC the CPU was at when a timer IRQ hit, row1 = its LR,
++ *      row2 = IRQ count,                               row3 = idle-loop entry count.
++ *    If row2 keeps counting but row3 stops, a thread is spinning with IRQs on and row0 is
++ *    where. If row2 freezes too, the CPU is hung (IRQs masked) or dead.
++ * 2) A few kprintf lines of timer/GIC state when the CPU idles (changes only, max 6).
++ * Armed by kernel_bootstrap_thread just before PE_lockdown_iokit().
 + */
 +volatile uint32_t a5xelte_irq_count;
 +volatile uint32_t a5xelte_last_iar;
 +volatile int a5xelte_diag_on;
++
++static volatile uint32_t *hb_fb;
++static const uint8_t hb_font[16][7] = {
++	{0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e}, /* 0 */
++	{0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e}, /* 1 */
++	{0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f}, /* 2 */
++	{0x1e, 0x01, 0x01, 0x0e, 0x01, 0x01, 0x1e}, /* 3 */
++	{0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02}, /* 4 */
++	{0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e}, /* 5 */
++	{0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e}, /* 6 */
++	{0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, /* 7 */
++	{0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e}, /* 8 */
++	{0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c}, /* 9 */
++	{0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11}, /* A */
++	{0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e}, /* B */
++	{0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e}, /* C */
++	{0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e}, /* D */
++	{0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f}, /* E */
++	{0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10}, /* F */
++};
++
++void
++a5xelte_hb_init(void)
++{
++	/* Same device mapping style the framebuffer console uses (ml_io_map). */
++	hb_fb = (volatile uint32_t *)ml_io_map(A5_FB_PHYS, 0x180000);
++}
++
++static void
++hb_row(unsigned row, uint32_t value)
++{
++	if (!hb_fb) {
++		return;
++	}
++	const unsigned x0 = 8, y0 = 8 + row * 36, stride = A5_FB_STRIDE / 4;
++	for (unsigned d = 0; d < 8; d++) {
++		unsigned nib = (value >> (28 - 4 * d)) & 0xf;
++		for (unsigned gy = 0; gy < 8; gy++) {
++			for (unsigned sy = 0; sy < 4; sy++) {
++				volatile uint32_t *line = hb_fb + (y0 + gy * 4 + sy) * stride + x0 + d * 24;
++				for (unsigned gx = 0; gx < 6; gx++) {
++					uint32_t on = (gy < 7 && gx < 5 && (hb_font[nib][gy] & (0x10u >> gx))) ? 1 : 0;
++					uint32_t c = on ? 0x00ffffffu : 0x000000ffu;
++					for (unsigned sx = 0; sx < 4; sx++) {
++						line[gx * 4 + sx] = c;
++					}
++				}
++			}
++		}
++	}
++}
++
++/* Called from sleh_irq with the interrupted context. */
++void
++a5xelte_hb_irq(uint64_t pc, uint64_t lr)
++{
++	if (!a5xelte_diag_on || (a5xelte_irq_count & 3) != 0) {
++		return;
++	}
++	hb_row(0, (uint32_t)pc);
++	hb_row(1, (uint32_t)lr);
++	hb_row(2, a5xelte_irq_count);
++}
 +
 +void
 +a5xelte_idle_diag(void)
 +{
 +	static uint32_t n, prints, l_ctl, l_due, l_pend, l_act, l_hpp, l_irq;
 +	if (!a5xelte_diag_on || !a5_gicd_base || !a5_gicc_base) {
++		return;
++	}
++	n++;
++	if ((n & 0xfff) == 0) {
++		hb_row(3, n);
++	}
++	if (prints >= 6) {
 +		return;
 +	}
 +	uint64_t ct = __builtin_arm_rsr64("CNTPCT_EL0");
@@ -103,23 +182,16 @@ index 0207f32..32bd5d9 100644
 +	uint32_t act = a5_gic_read32(a5_gicd_base, 0x300);
 +	uint32_t hpp = a5_gic_read32(a5_gicc_base, 0x018);
 +	uint32_t irq = a5xelte_irq_count;
-+	n++;
 +	bool changed = ((uint32_t)(ctl & 7) != l_ctl) || due != l_due || pend != l_pend ||
 +	    act != l_act || hpp != l_hpp || irq != l_irq;
-+	if (!(changed ? prints < 400 : (n % 64) == 0)) {
++	if (!changed) {
 +		return;
 +	}
 +	l_ctl = (uint32_t)(ctl & 7); l_due = due; l_pend = pend; l_act = act; l_hpp = hpp; l_irq = irq;
 +	prints++;
-+	kprintf("S9DIAG idle#%u ct=%llx ctl=%llx cval-ct=%lld due=%u daif=%llx | "
-+	    "gicd=%08x grp=%08x en=%08x pend=%08x act=%08x | gicc=%08x pmr=%08x hpp=%08x | "
-+	    "irqs=%u last_iar=%x\n",
-+	    n, ct, ctl, (long long)(cval - ct), due,
-+	    (unsigned long long)__builtin_arm_rsr64("DAIF"),
-+	    a5_gic_read32(a5_gicd_base, 0x000), a5_gic_read32(a5_gicd_base, 0x080),
-+	    a5_gic_read32(a5_gicd_base, 0x100), pend, act,
-+	    a5_gic_read32(a5_gicc_base, 0x000), a5_gic_read32(a5_gicc_base, 0x004), hpp,
-+	    irq, a5xelte_last_iar);
++	kprintf("S9DIAG idle#%u ct=%llx ctl=%llx cval-ct=%lld due=%u irqs=%u iar=%x gicc=%08x hpp=%08x\n",
++	    n, ct, ctl, (long long)(cval - ct), due, irq, a5xelte_last_iar,
++	    a5_gic_read32(a5_gicc_base, 0x000), hpp);
 +}
 +
  void
