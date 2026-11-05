@@ -1,21 +1,90 @@
 diff --git bsd/kern/bsd_init.c bsd/kern/bsd_init.c
-index d26e1ee..f7c9cb1 100644
+index d26e1ee..9a8a4ce 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -490,7 +490,7 @@ bsd_init(void)
+@@ -490,7 +490,8 @@ bsd_init(void)
  	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_BSD_INIT);
  #endif
  
 -#define DEBUG_BSDINIT 0
 +#define DEBUG_BSDINIT 1   /* star2lte (0126): kprintf every bsd_init step */
++	kprintf("S9DIAG: bsd_init entered\n");
  
  #if DEBUG_BSDINIT
  #define bsd_init_kprintf(x, ...) kprintf("bsd_init: " x, ## __VA_ARGS__)
+@@ -499,6 +500,7 @@ bsd_init(void)
+ #endif
+ 
+ 	throttle_init();
++	kprintf("S9DIAG: throttle_init done\n");
+ 
+ 	printf(copyright);
+ 
 diff --git osfmk/arm64/cpu.c osfmk/arm64/cpu.c
-index b082a10..4e7c425 100644
+index b082a10..f5bca7a 100644
 --- a/osfmk/arm64/cpu.c
 +++ b/osfmk/arm64/cpu.c
-@@ -488,6 +488,14 @@ cpu_idle(void)
+@@ -37,6 +37,8 @@
+ #include <kern/cpu_number.h>
+ #include <kern/percpu.h>
+ #include <kern/thread.h>
++#include <kern/processor.h>
++#include <kern/thread_kernel_state.h>
+ #include <kern/timer_queue.h>
+ #include <arm/cpu_data.h>
+ #include <arm/cpuid.h>
+@@ -477,6 +479,50 @@ wfe_to_deadline_or_interrupt(uint32_t cid, uint64_t wfe_deadline, cpu_data_t *cd
+ 	return ipending || (nirqc != irqc);
+ }
+ 
++#if defined(A5XELTE)
++/*
++ * star2lte (0126): one-shot list of every kernel thread with its wait state and a
++ * short backtrace of where it blocked, printed with kprintf. Called from the idle
++ * path (single CPU, interrupts masked), so the thread list cannot change under us.
++ * Columns: tid, state (1=wait, 4=run, 80=idle), wait event, continuation (low 32 bits),
++ * then the saved LR and up to 4 caller return addresses (low 32 bits; kernel text is
++ * 0xfffffff0xxxxxxxx).
++ */
++void
++a5xelte_thread_dump(void)
++{
++	thread_t t;
++	unsigned total = 0;
++
++	kprintf("S9DIAG threads: tid state event cont | lr callers\n");
++	queue_iterate(&threads, t, thread_t, threads) {
++		uint64_t lr = 0, caller[4] = { 0, 0, 0, 0 };
++		total++;
++		if (t->kernel_stack != 0 && t->machine.kstackptr != 0) {
++			thread_kernel_state_t ks = (thread_kernel_state_t)t->machine.kstackptr;
++			uint64_t fp = ks->machine.ss.fp;
++			uint64_t lo = (uint64_t)t->kernel_stack;
++			uint64_t hi = lo + (uint64_t)kernel_stack_size;
++			lr = ks->machine.ss.lr;
++			for (unsigned i = 0; i < 4; i++) {
++				if (fp < lo || fp + 16 > hi || (fp & 7) != 0) {
++					break;
++				}
++				caller[i] = ((uint64_t *)fp)[1];
++				fp = ((uint64_t *)fp)[0];
++			}
++		}
++		kprintf("T%llu s%x e%llx c%08x | %08x %08x %08x %08x %08x\n",
++		    (unsigned long long)thread_tid(t), (unsigned)t->state,
++		    (unsigned long long)t->wait_event,
++		    (unsigned)(uintptr_t)t->continuation,
++		    (unsigned)lr, (unsigned)caller[0], (unsigned)caller[1],
++		    (unsigned)caller[2], (unsigned)caller[3]);
++	}
++	kprintf("S9DIAG threads total=%u\n", total);
++}
++#endif /* A5XELTE */
++
+ /*
+  *	Routine:	cpu_idle
+  *	Function:
+@@ -488,6 +534,19 @@ cpu_idle(void)
  	uint64_t        new_idle_timeout_ticks = 0x0ULL, lastPop;
  	bool idle_disallowed = false;
  
@@ -24,7 +93,12 @@ index b082a10..4e7c425 100644
 +		/* star2lte diagnostics (0126): every entry, before any early exit,
 +		 * so a CPU that spins here without reaching WFI is visible too. */
 +		extern void a5xelte_idle_diag(void);
++		extern int a5xelte_dump_due(void);
++		extern void a5xelte_thread_dump(void);
 +		a5xelte_idle_diag();
++		if (a5xelte_dump_due()) {
++			a5xelte_thread_dump();
++		}
 +	}
 +#endif
  	if (__improbable((!idle_enable))) {
@@ -49,7 +123,7 @@ index 87fb8a8..43a5db8 100644
  	const uint32_t timer_intid = A5XELTE_VTIMER_INTID;
  #else
 diff --git osfmk/kern/startup.c osfmk/kern/startup.c
-index bec97fb..80616dc 100644
+index bec97fb..60b2dd4 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
 @@ -768,9 +768,21 @@ kernel_bootstrap_thread(void)
@@ -74,11 +148,21 @@ index bec97fb..80616dc 100644
  #endif
  	/*
  	 * max_cpus must be nailed down by the time PE_lockdown_iokit() finishes,
+@@ -786,6 +798,9 @@ kernel_bootstrap_thread(void)
+ 	/*
+ 	 *	Start the user bootstrap.
+ 	 */
++#if defined(A5XELTE)
++	kprintf("S9DIAG: calling bsd_init\n");
++#endif
+ #ifdef  MACH_BSD
+ 	bsd_init();
+ #endif
 diff --git pexpert/arm/pe_fiq.c pexpert/arm/pe_fiq.c
-index 0207f32..49ee0cf 100644
+index 0207f32..89affe2 100644
 --- a/pexpert/arm/pe_fiq.c
 +++ b/pexpert/arm/pe_fiq.c
-@@ -284,6 +284,118 @@ a5xelte_gic_diagnostics(unsigned int logical, const char *stage)
+@@ -284,6 +284,139 @@ a5xelte_gic_diagnostics(unsigned int logical, const char *stage)
  	    a5_gic_read32(a5_gicc_base, 0x018));
  }
  
@@ -130,7 +214,7 @@ index 0207f32..49ee0cf 100644
 +	if (!hb_fb) {
 +		return;
 +	}
-+	const unsigned x0 = 8, y0 = 8 + row * 36, stride = A5_FB_STRIDE / 4;
++	const unsigned x0 = 120, y0 = 70 + row * 36, stride = A5_FB_STRIDE / 4;
 +	for (unsigned d = 0; d < 8; d++) {
 +		unsigned nib = (value >> (28 - 4 * d)) & 0xf;
 +		for (unsigned gy = 0; gy < 8; gy++) {
@@ -158,6 +242,27 @@ index 0207f32..49ee0cf 100644
 +	hb_row(0, (uint32_t)pc);
 +	hb_row(1, (uint32_t)lr);
 +	hb_row(2, a5xelte_irq_count);
++}
++
++/* One-shot: true once, 45 s after the first idle entry following arming. */
++int
++a5xelte_dump_due(void)
++{
++	static uint64_t ct0;
++	static int done;
++	if (!a5xelte_diag_on || done) {
++		return 0;
++	}
++	uint64_t ct = __builtin_arm_rsr64("CNTPCT_EL0");
++	if (ct0 == 0) {
++		ct0 = ct;
++		return 0;
++	}
++	if (ct - ct0 < 45ULL * 26000000ULL) {
++		return 0;
++	}
++	done = 1;
++	return 1;
 +}
 +
 +void
