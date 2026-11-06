@@ -1,0 +1,15 @@
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 0494860..4603265 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -12,6 +12,10 @@
+ 			    (unsigned)thread->sched_flags, (int)thread->sched_mode,
+ 			    (long long)(now - thread->last_run_time), (long long)now,
+ 			    (int)map->hdr.nentries, (unsigned long long)map->size);
++			/* fault storm (faults rising) vs user retry loop (syscalls_mach rising) vs kernel spin (neither) */
++			printf("SMP %s t%d task counters faults %llu syscalls_mach %llu syscalls_unix %llu msgs_sent %llu\n",
++			    name, tn - 1, (unsigned long long)task->faults, (unsigned long long)task->syscalls_mach,
++			    (unsigned long long)task->syscalls_unix, (unsigned long long)task->messages_sent);
+ 			/*
+ 			 * Kernel stack scan: no struct layout needed. Walk the thread's kernel
+ 			 * stack from the top (oldest frames) down and print words that point
