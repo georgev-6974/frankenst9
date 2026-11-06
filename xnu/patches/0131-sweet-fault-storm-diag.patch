@@ -1,0 +1,54 @@
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+index 84539e8..6a91d09 100644
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -132,6 +132,18 @@ arm_fast_fault_internal(
+ 		result = KERN_SUCCESS;
+ 	}
+ 
++	/* S9 diag: fast faults reported as handled; a storm shows here with the PTE that was judged fine */
++	if (result == KERN_SUCCESS) {
++		static unsigned int s9_aff_n, s9_aff_printed;
++		s9_aff_n++;
++		if (s9_aff_n >= 2048 && (s9_aff_n & 1023) == 0 && s9_aff_printed < 40) {
++			s9_aff_printed++;
++			printf("S9FF n %u va 0x%llx ft 0x%x spte 0x%llx now 0x%llx kpmap %d\n", s9_aff_n,
++			    (unsigned long long)va, (unsigned)fault_type, (unsigned long long)spte,
++			    (unsigned long long)*((volatile pt_entry_t *)ptep), (int)(pmap == kernel_pmap));
++		}
++	}
++
+ 	pvh_unlock(pai);
+ 	pmap_unlock(pmap, PMAP_LOCK_SHARED);
+ 	return result;
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index f50d5c6..0ad70d3 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -73,6 +73,26 @@ handle_kernel_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_ad
+ 			interruptible = (recover) ? THREAD_UNINT : THREAD_ABORTSAFE;
+ 		}
+ 
++		/* S9 diag: same (far, esr) again and again inside copyio = fault storm */
++		if (recover) {
++			static uint64_t s9_last_far;
++			static uint32_t s9_last_esr, s9_rep, s9_printed;
++			if ((uint64_t)fault_addr == s9_last_far && esr == s9_last_esr) {
++				s9_rep++;
++			} else {
++				s9_last_far = (uint64_t)fault_addr;
++				s9_last_esr = esr;
++				s9_rep = 0;
++			}
++			if ((s9_rep == 64 || (s9_rep != 0 && (s9_rep & 1023) == 0)) && s9_printed < 40) {
++				s9_printed++;
++				printf("S9KAB rep %u esr 0x%x far 0x%llx fc 0x%x ft 0x%x pc 0x%llx cpsr 0x%x tcr 0x%llx sctlr 0x%llx\n",
++				    s9_rep, esr, (unsigned long long)fault_addr, (unsigned)fault_code, (unsigned)fault_type,
++				    (unsigned long long)get_saved_state_pc(state), (unsigned)get_saved_state_cpsr(state),
++				    (unsigned long long)__builtin_arm_rsr64("TCR_EL1"), (unsigned long long)__builtin_arm_rsr64("SCTLR_EL1"));
++			}
++		}
++
+ 		/* check to see if it is just a pmap ref/modify fault */
+ 		if (!is_translation_fault(fault_code)) {
+ 			result = arm_fast_fault(map->pmap,
