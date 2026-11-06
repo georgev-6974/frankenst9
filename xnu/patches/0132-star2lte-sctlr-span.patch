@@ -1,0 +1,26 @@
+diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
+index e01c124..7d1a372 100644
+--- a/osfmk/arm64/proc_reg.h
++++ b/osfmk/arm64/proc_reg.h
+@@ -651,12 +651,20 @@
+ #define SCTLR_JOP_KEYS_DEFAULT  0
+ #endif
+ 
+-#define SCTLR_EL1_DEFAULT \
++/*
++ * S9: set SCTLR_EL1.SPAN (bit 23) so PSTATE.PAN is NOT forced to 1 on exception entry.
++ * This build does not define __ARM_PAN_AVAILABLE__, so the copyio code never clears PAN and
++ * every copyin/copyout of a user page takes a permission fault forever. SPAN is RES1 on
++ * cores without PAN (Exynos M3), so this is safe on both clusters.
++ */
++#define SCTLR_S9_SPAN 0x00800000
++#define SCTLR_EL1_DEFAULT_PRE_S9 \
+ 	(SCTLR_RESERVED | SCTLR_UCI_ENABLED | SCTLR_nTWE_WFE_ENABLED | SCTLR_DZE_ENABLED | \
+ 	 SCTLR_I_ENABLED | SCTLR_SED_DISABLED | SCTLR_CP15BEN_ENABLED |                    \
+ 	 SCTLR_SA0_ENABLED | SCTLR_SA_ENABLED | SCTLR_C_ENABLED | SCTLR_M_ENABLED |        \
+ 	 SCTLR_CSEH_DEFAULT | SCTLR_DSSBS_DEFAULT |                                        \
+ 	 SCTLR_ROP_KEYS_DEFAULT | SCTLR_JOP_KEYS_DEFAULT)
++#define SCTLR_EL1_DEFAULT (SCTLR_EL1_DEFAULT_PRE_S9 | SCTLR_S9_SPAN)
+ 
+ /*
+  * Coprocessor Access Control Register (CPACR)
