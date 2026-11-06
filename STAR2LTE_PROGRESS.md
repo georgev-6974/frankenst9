@@ -394,3 +394,5 @@ Two areas at the end of USERDATA (`sda25`), both clear of the 16 GB iOS root ima
 - CI build succeeded; flashing and result: pending.
 
 - RESULT build 0136 (2026-11-07): no panic, Apple progress bar starts normally. Core 1 starts via the 0x89f00000 trampoline, so the S9+ PSCI CPU_ON entry is 32-bit (supported by this result, not directly read: no marker readback yet). Not yet checked: that cores 2-3 are alive, boot time vs the earlier cpus=1 baseline, whether it reaches the lock screen.
+
+- CORRECTION (2026-11-07): the "core 1 starts" result above is WRONG. Log v22 shows "1/1 CPUs initialized": that run used default ARGS with cpus=1, and plain `s9.sh build` picks the newest kernel in xnu/out, not xnu/out-0136. The trampoline is still untested. Run with ARGS without cpus=1 and pass the xnu/out-0136 kernel explicitly.
