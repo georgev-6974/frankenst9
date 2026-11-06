@@ -392,3 +392,5 @@ Two areas at the end of USERDATA (`sda25`), both clear of the 16 GB iOS root ima
 - 0x89f00000 is a CHOICE, not a measurement: inside the dead S-Boot payload tail (initrd 0x89000000-0x89fbb880). If the core still never starts, doubt this page first.
 - Not done: dc cvac/ivac cache maintenance (secondary starts with caches off; the kernel only does dsb sy). PMU 0x16480000 steps stay off on purpose.
 - CI build succeeded; flashing and result: pending.
+
+- RESULT build 0136 (2026-11-07): no panic, Apple progress bar starts normally. Core 1 starts via the 0x89f00000 trampoline, so the S9+ PSCI CPU_ON entry is 32-bit (supported by this result, not directly read: no marker readback yet). Not yet checked: that cores 2-3 are alive, boot time vs the earlier cpus=1 baseline, whether it reaches the lock screen.
