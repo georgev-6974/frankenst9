@@ -1284,7 +1284,7 @@
 +		{
 +			static uint32_t sweet_dbg_n;
 +			sweet_dbg_n++;
-+			if (sweet_dbg_n <= 8 || (sweet_dbg_n & 0xff) == 0) {
++			if (1) {
 +				if (src == 0 || bpe != 4) {
 +					IOLog("SWEET FBDIAG: n %u SKIP src %lx bpe %u ew %u eh %u mem %p last %llu len %llu w %d h %d\n",
 +					   sweet_dbg_n, (unsigned long)src, bpe, (unsigned)s->elementWidth,
