@@ -1,0 +1,46 @@
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 8b223e5..0000000 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -46,6 +46,41 @@
+ 		printf("SMP %s t%d kernel state 0x%x wait_event 0x%llx cont %p kstack %p\n", name, tn - 1,
+ 		    (unsigned)thread->state, (unsigned long long)thread->wait_event,
+ 		    (void *)thread->continuation, (void *)thread->kernel_stack);
++		{
++			extern vm_offset_t vm_kernel_stext, vm_kernel_etext, kernel_stack_size;
++			extern uint64_t mach_absolute_time(void);
++			uint64_t now = mach_absolute_time();
++
++			/* is launchd runnable but starved (old last_run_time), or busy? */
++			printf("SMP %s t%d sched pri %d base %d flags 0x%x mode %d last_run_ago %lld now %lld nentries %d map_size 0x%llx\n",
++			    name, tn - 1, (int)thread->sched_pri, (int)thread->base_pri,
++			    (unsigned)thread->sched_flags, (int)thread->sched_mode,
++			    (long long)(now - thread->last_run_time), (long long)now,
++			    (int)map->hdr.nentries, (unsigned long long)map->size);
++			/*
++			 * Kernel stack scan: no struct layout needed. Walk the thread's kernel
++			 * stack from the top (oldest frames) down and print words that point
++			 * into kernel text (low 32 bits; prefix 0xfffffff0). Order = call chain
++			 * from the syscall entry inwards until the live stack ends; below that
++			 * the words are stale leftovers, so read the first lines most.
++			 */
++			if (thread->kernel_stack != 0 && kernel_stack_size != 0) {
++				uint64_t *lo = (uint64_t *)thread->kernel_stack;
++				uint64_t *w = lo + (kernel_stack_size / sizeof(uint64_t));
++				char kb[640];
++				int kn = snprintf(kb, sizeof(kb), "SMP %s t%d kstack", name, tn - 1);
++				int found = 0;
++
++				while (w > lo && found < 40 && kn < (int)sizeof(kb) - 14) {
++					uint64_t v = *--w;
++					if (v >= (uint64_t)vm_kernel_stext && v < (uint64_t)vm_kernel_etext) {
++						kn += snprintf(kb + kn, sizeof(kb) - kn, " %08x", (unsigned)(v & 0xffffffffu));
++						found++;
++					}
++				}
++				printf("%s\n", kb);
++			}
++		}
+ 		/* print pc/lr/sp first: the walk below used to wedge the kernel */
+ 		printf("SMP %s t%d regs pc 0x%llx lr 0x%llx sp 0x%llx fp 0x%llx\n", name, tn - 1,
+ 		    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss), fp);
