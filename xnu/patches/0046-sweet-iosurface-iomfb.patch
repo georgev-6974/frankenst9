@@ -991,7 +991,7 @@
 +#endif /* SWEET */
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,486 @@
 +/*
 + * Built-in IOMobileFramebuffer for SWEET: the ABL's continuous-splash
 + * framebuffer (1080x2400 a8r8g8b8 in RAM, the panel scans it out by
@@ -1280,6 +1280,37 @@
 +		if (w <= 0 || h <= 0 || s->elementWidth != 1 || s->elementHeight != 1 ||
 +		    s->memory == NULL || last > s->memory->getLength()) {
 +			src = 0;
++		}
++		{
++			static uint32_t sweet_dbg_n;
++			sweet_dbg_n++;
++			if (sweet_dbg_n <= 8 || (sweet_dbg_n & 0xff) == 0) {
++				if (src == 0 || bpe != 4) {
++					IOLog("SWEET FBDIAG: n %u SKIP src %lx bpe %u ew %u eh %u mem %p last %llu len %llu w %d h %d\n",
++					   sweet_dbg_n, (unsigned long)src, bpe, (unsigned)s->elementWidth,
++					   (unsigned)s->elementHeight, (void *)s->memory, (unsigned long long)last,
++					   (unsigned long long)(s->memory ? s->memory->getLength() : 0), w, h);
++				} else {
++					uint32_t nz = 0, first = 0, mid = 0, px;
++					for (uint32_t i = 0; i < 64; i++) {
++						uint32_t yy = (uint32_t)(((uint64_t)i * (uint32_t)h) / 64);
++						uint32_t xx = (uint32_t)((i * 37u) % (uint32_t)w);
++						memcpy(&px, (const void *)(src + s->offset + (uint64_t)(sy + yy) * s->bytesPerRow +
++						   (uint64_t)(sx + xx) * 4), 4);
++						if (i == 0) {
++							first = px;
++						}
++						if (i == 32) {
++							mid = px;
++						}
++						if ((px & 0x00ffffffu) != 0) {
++							nz++;
++						}
++					}
++					IOLog("SWEET FBDIAG: n %u ok nonblack %u/64 px0 0x%x px32 0x%x w %d h %d dst %d,%d\n",
++					   sweet_dbg_n, nz, first, mid, w, h, dx, dy);
++				}
++			}
 +		}
 +		if (src != 0 && bpe == 4) {
 +			for (int32_t y = 0; y < h; y++) {
