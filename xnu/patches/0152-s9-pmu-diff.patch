@@ -1,0 +1,45 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 77dfe9c..b0ffa49 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -59,6 +59,9 @@ sweet_psci_cpu_on(uint64_t target, uint64_t entry, uint64_t context)
+ 	return (int32_t)x0;
+ }
+ 
++/* S9PMU: snapshot of the PMU block before CPU_ON */
++static uint32_t s9pmu_snap[4096];
++
+ /* S9AFF: PSCI AFFINITY_INFO (0 ON, 1 OFF, 2 ON_PENDING, <0 error) */
+ static int32_t
+ sweet_psci_aff_info(uint64_t target)
+@@ -402,8 +405,30 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	}
+ #endif
+ 	__builtin_arm_dsb(DSB_SY);
++	volatile uint32_t *s9pmu = NULL;
++	if (getCPUNumber() == 1 || getCPUNumber() == 4) {
++		s9pmu = (volatile uint32_t *)ml_io_map(0x14060000ULL, 0x4000);
++		for (int w = 0; w < 4096; w++) {
++			s9pmu_snap[w] = s9pmu[w];
++		}
++	}
+ 	int32_t rc = sweet_psci_cpu_on(SWEET_PSCI_TARGET(cpu->phys_id), entry, getCPUNumber());
+ 	IOLog(CPU_PORT_NAME " CPU: cpu=%u PSCI CPU_ON rc=%d\n", getCPUNumber(), rc);
++	if (s9pmu) {
++		for (int j = 0; j < 30; j++) {
++			IODelay(10000);
++		}
++		int n = 0;
++		for (int w = 0; w < 4096; w++) {
++			uint32_t v = s9pmu[w];
++			if (v != s9pmu_snap[w] && n < 40) {
++				IOLog(CPU_PORT_NAME " S9PMU cpu=%u off=0x%x %x->%x\n", getCPUNumber(),
++				   (unsigned)(w * 4), (unsigned)s9pmu_snap[w], (unsigned)v);
++				n++;
++			}
++		}
++		IOLog(CPU_PORT_NAME " S9PMU cpu=%u done, %d changed (max 40 shown)\n", getCPUNumber(), n);
++	}
+ 	if (getCPUNumber() >= 4) {
+ 		for (int k = 0; k < 8; k++) {
+ 			IOLog(CPU_PORT_NAME " S9AFF cpu=%u k=%d tgt=%d 0x10000=%d 0x400=%d\n",
