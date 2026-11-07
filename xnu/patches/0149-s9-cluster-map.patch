@@ -1,0 +1,32 @@
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index 6d56a33..2f57ff6 100644
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -1056,8 +1056,14 @@ ml_parse_cpu_topology(void)
+ 		uint32_t phys_cluster_id = (cpu->cluster_type == CLUSTER_TYPE_P);
+ #endif
+ 		assert(phys_cluster_id <= MAX_CPU_CLUSTER_PHY_ID);
++#if defined(A5XELTE)
++		/* S9CLUSTER: Exynos 9810 A55 cores have MPIDR Aff1 = core number but share
++		 * one cluster; the logical cluster is the ADT cluster-id (A55 = 0). */
++		cpu->cluster_id = (uint32_t)ml_readprop(child, "cluster-id", 0);
++#else
+ 		cpu->cluster_id = ((cluster_phys_to_logical[phys_cluster_id] == -1) ?
+ 		    topology_info.num_clusters : cluster_phys_to_logical[phys_cluster_id]);
++#endif
+ 
+ 		assert(cpu->cluster_id < MAX_CPU_CLUSTERS);
+ 
+@@ -1083,6 +1089,12 @@ ml_parse_cpu_topology(void)
+ 			ml_read_reg_range(child, "acc-impl-reg", &cluster->acc_IMPL_pa, &cluster->acc_IMPL_len);
+ 			ml_read_reg_range(child, "cpm-impl-reg", &cluster->cpm_IMPL_pa, &cluster->cpm_IMPL_len);
+ 		}
++#if defined(A5XELTE)
++		/* S9CLUSTER: cores 1-3 join logical cluster 0 but have their own physical Aff1 */
++		if (cluster_phys_to_logical[phys_cluster_id] == -1) {
++			cluster_phys_to_logical[phys_cluster_id] = cpu->cluster_id;
++		}
++#endif
+ 
+ #if HAS_CLUSTER || defined(A5XELTE)
+ 		if (MPIDR_CPU_ID(cpu->phys_id) > cluster_max_cpu_phys_id[phys_cluster_id]) {
