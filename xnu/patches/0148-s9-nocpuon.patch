@@ -1,0 +1,18 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 3d1942e..3733050 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -317,6 +317,13 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	vm_offset_t entry = ml_static_vtop((vm_offset_t)&sweet_secondary_entry);
+ 	IOLog(CPU_PORT_NAME " CPU: cpu=%u CPU_ON target=0x%x entry_pa=0x%llx context=%u\n",
+ 	    getCPUNumber(), cpu->phys_id, (uint64_t)entry, getCPUNumber());
++	{
++		uint32_t s9skip = 0;
++		if (PE_parse_boot_argn("s9nocpuon", &s9skip, sizeof(s9skip)) && s9skip != 0) {
++			IOLog(CPU_PORT_NAME " CPU: cpu=%u s9nocpuon: NOT calling PSCI CPU_ON\n", getCPUNumber());
++			return KERN_SUCCESS;
++		}
++	}
+ #if defined(STAR2LTE)
+ 	{
+ 		const uint64_t TRAMP_PA = 0x89f00000ULL;
