@@ -1,0 +1,52 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 96ccc62..2e82874 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -17,6 +17,15 @@
+ #include <kern/thread.h>
+ #include <mach/mach_time.h>
+ #include <pexpert/pexpert.h>
++
++#if defined(STAR2LTE)
++/* Exynos 9810: MPIDR_EL1 has the core in Aff1 (A55 0x000-0x300; M3 0x400-0x700
++ * is a PLACEHOLDER, not measured). Firmware PSCI CPU_ON uses the Linux DT
++ * numbering (A55 0-3, M3 0x100-0x103). */
++#define SWEET_PSCI_TARGET(p) ((p) < 0x400U ? ((p) >> 8) : (0x100U + (((p) - 0x400U) >> 8)))
++#else
++#define SWEET_PSCI_TARGET(p) (p)
++#endif
+ #if defined(DREAMLTE)
+ extern "C" vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+ #endif
+@@ -89,9 +98,10 @@ SweetCPU::start(IOService *provider)
+ 	 * logical 4..7 = MPIDR 0x100..0x103. */
+ #if defined(STAR2LTE)
+ 	/* Exynos 9810: the boot cluster comes first (mkadt_star2lte.py). */
+-	uint32_t boot_cluster = A5_BOOT_MPIDR & 0x100U;
+-	uint32_t expected_mpidr = cpu->cpu_id < 4 ? boot_cluster + cpu->cpu_id :
+-	    (boot_cluster ^ 0x100U) + cpu->cpu_id - 4;
++	uint32_t boot_cluster = 0U; /* A55 cluster boots; MPIDR Aff1 = core */
++	uint32_t expected_mpidr = cpu->cpu_id < 4 ?
++	   boot_cluster + (cpu->cpu_id << 8) :
++	   boot_cluster + 0x400U + ((cpu->cpu_id - 4) << 8);
+ #elif defined(DREAMLTE)
+ 	/* Exynos 8895: logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster);
+ 	 * logical 4..7 = Mongoose M2 MPIDR 0..3. */
+@@ -356,7 +366,7 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 			IODelay(1);
+ 		}
+ 		__builtin_arm_dsb(DSB_SY);
+-		int32_t rc0 = sweet_psci_cpu_on(cpu->phys_id, entry, getCPUNumber());
++		int32_t rc0 = sweet_psci_cpu_on(SWEET_PSCI_TARGET(cpu->phys_id), entry, getCPUNumber());
+ 		cfg[0] |= 0xf;                  /* CPUn_CONFIGURATION: LOCAL_PWR_CFG */
+ 		for (int i = 0; i < 10000 && (cfg[1] & 0xf) != 0xf; i++) {
+ 			IODelay(1);
+@@ -366,7 +376,7 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	}
+ #endif
+ 	__builtin_arm_dsb(DSB_SY);
+-	int32_t rc = sweet_psci_cpu_on(cpu->phys_id, entry, getCPUNumber());
++	int32_t rc = sweet_psci_cpu_on(SWEET_PSCI_TARGET(cpu->phys_id), entry, getCPUNumber());
+ 	IOLog(CPU_PORT_NAME " CPU: cpu=%u PSCI CPU_ON rc=%d\n", getCPUNumber(), rc);
+ 	/* cpu_start() discards PE_cpu_start's return; do not silently carry on. */
+ 	if (rc != 0) {

@@ -42,7 +42,7 @@ GICD, GICC = 0x10101000, 0x10102000
 UFS_HCI, UFS_VS = 0x11120000, 0x11121100
 
 A55 = dict(name='arm,cortex-a55', cluster=0, base=0x0, mhz=1794000000)
-M3 = dict(name='samsung,exynos-m3', cluster=1, base=0x100, mhz=2704000000)
+M3 = dict(name='samsung,exynos-m3', cluster=1, base=0x400, mhz=2704000000)
 
 
 def set_prop(node, name, value):
@@ -63,12 +63,12 @@ def child(node, name):
 def cpu_order(boot_mpidr):
     """Logical order: boot cluster first (cpu0 = the boot CPU)."""
     clusters = [A55, M3]
-    if boot_mpidr & 0x100:
+    if boot_mpidr >= 0x400:
         clusters.reverse()
     order = []
     for c in clusters:
         for core in range(4):
-            order.append((c, c['base'] + core, core))
+            order.append((c, c['base'] + (core << 8), core))  # SWEET_CORE_AFF1
     # put the exact boot CPU first, keep the rest in order
     order.sort(key=lambda e: e[1] != boot_mpidr)
     return order
