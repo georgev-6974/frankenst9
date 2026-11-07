@@ -1,0 +1,42 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 3733050..77dfe9c 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -59,6 +59,19 @@ sweet_psci_cpu_on(uint64_t target, uint64_t entry, uint64_t context)
+ 	return (int32_t)x0;
+ }
+ 
++/* S9AFF: PSCI AFFINITY_INFO (0 ON, 1 OFF, 2 ON_PENDING, <0 error) */
++static int32_t
++sweet_psci_aff_info(uint64_t target)
++{
++	register uint64_t x0 __asm__("x0") = 0xC4000004ULL;
++	register uint64_t x1 __asm__("x1") = target;
++	register uint64_t x2 __asm__("x2") = 0;
++	__asm__ volatile("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2) : :
++	   "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
++	   "x14", "x15", "x16", "x17", "cc", "memory");
++	return (int32_t)x0;
++}
++
+ class SweetCPU : public IOCPU {
+ 	OSDeclareDefaultStructors(SweetCPU);
+ 	const OSSymbol *cpuName = NULL;
+@@ -391,6 +404,17 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	__builtin_arm_dsb(DSB_SY);
+ 	int32_t rc = sweet_psci_cpu_on(SWEET_PSCI_TARGET(cpu->phys_id), entry, getCPUNumber());
+ 	IOLog(CPU_PORT_NAME " CPU: cpu=%u PSCI CPU_ON rc=%d\n", getCPUNumber(), rc);
++	if (getCPUNumber() >= 4) {
++		for (int k = 0; k < 8; k++) {
++			IOLog(CPU_PORT_NAME " S9AFF cpu=%u k=%d tgt=%d 0x10000=%d 0x400=%d\n",
++			   getCPUNumber(), k,
++			   sweet_psci_aff_info(SWEET_PSCI_TARGET(cpu->phys_id)),
++			   sweet_psci_aff_info(0x10000ULL), sweet_psci_aff_info(0x400ULL));
++			for (int j = 0; j < 10; j++) {
++				IODelay(10000);
++			}
++		}
++	}
+ 	/* cpu_start() discards PE_cpu_start's return; do not silently carry on. */
+ 	if (rc != 0) {
+ 		panic(CPU_PORT_NAME " CPU: cpu=%u NOT alive: PSCI CPU_ON rc=%d", getCPUNumber(), rc);
