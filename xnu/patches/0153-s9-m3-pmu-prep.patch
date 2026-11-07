@@ -1,0 +1,31 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index b0ffa49..0ae879c 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -405,6 +405,26 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	}
+ #endif
+ 	__builtin_arm_dsb(DSB_SY);
++	if (getCPUNumber() == 4) {
++		/* S9M3: Samsung's pmucal_lpm_init CLUSTER1 fields, before the first M3 CPU_ON */
++		static const uint32_t m3off[6] = { 0x1088, 0x2114, 0x2180, 0x21EC, 0x2258, 0x2384 };
++		static const uint32_t m3mask[6] = { 0xFF000000u, 3u, 3u, 3u, 3u, 3u };
++		static const uint32_t m3val[6] = { 0x8D000000u, 2u, 2u, 2u, 2u, 2u };
++		volatile uint8_t *pm = (volatile uint8_t *)ml_io_map(0x14060000ULL, 0x3000);
++		for (int i = 0; i < 6; i++) {
++			volatile uint32_t *r = (volatile uint32_t *)(pm + m3off[i]);
++			uint32_t old = *r;
++			*r = (old & ~m3mask[i]) | m3val[i];
++			__builtin_arm_dsb(DSB_SY);
++			uint32_t now = *r;
++			IOLog(CPU_PORT_NAME " S9M3 off=0x%x %x->%x (want %x)\n", (unsigned)m3off[i],
++			   (unsigned)old, (unsigned)now, (unsigned)((old & ~m3mask[i]) | m3val[i]));
++		}
++		IOLog(CPU_PORT_NAME " S9M3 st 2000=%x 2004=%x 2040=%x 2044=%x 2380=%x\n",
++		   (unsigned)*(volatile uint32_t *)(pm + 0x2000), (unsigned)*(volatile uint32_t *)(pm + 0x2004),
++		   (unsigned)*(volatile uint32_t *)(pm + 0x2040), (unsigned)*(volatile uint32_t *)(pm + 0x2044),
++		   (unsigned)*(volatile uint32_t *)(pm + 0x2380));
++	}
+ 	volatile uint32_t *s9pmu = NULL;
+ 	if (getCPUNumber() == 1 || getCPUNumber() == 4) {
+ 		s9pmu = (volatile uint32_t *)ml_io_map(0x14060000ULL, 0x4000);
