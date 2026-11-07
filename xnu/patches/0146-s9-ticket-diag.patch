@@ -1,0 +1,13 @@
+diff --git a/osfmk/kern/lock_ticket.c b/osfmk/kern/lock_ticket.c
+index 7ba77d7..90ad4db 100644
+--- a/osfmk/kern/lock_ticket.c
++++ b/osfmk/kern/lock_ticket.c
+@@ -140,7 +140,7 @@ __lck_ticket_owned_panic(lck_ticket_t *lck)
+ {
+ 	thread_t self = current_thread();
+ 
+-	panic("Ticket lock %p is unexpectedly owned by thread %p", lck, self);
++	panic("Ticket lock %p unexpectedly owned: thread %p ctid 0x%x owner 0x%x from %p", lck, self, (uint32_t)self->ctid, (uint32_t)lck->lck_ticket_owner, __builtin_return_address(0));
+ }
+ 
+ __abortlike
