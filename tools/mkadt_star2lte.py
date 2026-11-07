@@ -78,11 +78,11 @@ def cpu_node(logical, cluster_info, mpidr, core):
     return [
         ('device_type', mkadt.cstr('cpu')),
         ('compatible', mkadt.cstr(cluster_info['name']) +
-         (mkadt.cstr('arm,cortex-a53') if cluster_info is A55 else b'') +  # SweetCPU matches a53 (patch 0086)
+         mkadt.cstr('arm,cortex-a53') +  # SweetCPU matches a53 (patch 0086)
          mkadt.cstr('ARM,v8')),
         ('reg', mkadt.u32(mpidr)),
         ('cpu-id', mkadt.u32(logical)),
-        ('cluster-id', mkadt.u32(cluster_info['cluster'])),
+        ('cluster-id', mkadt.u32(0)),  # S9: one pset for all 8 cores
         ('cluster-type', mkadt.u32(0)),
         ('die-cluster-id', mkadt.u32(cluster_info['cluster'])),
         ('cluster-core-id', mkadt.u32(core)),
