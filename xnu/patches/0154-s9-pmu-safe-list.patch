@@ -1,0 +1,51 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 0ae879c..0d7236b 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -62,6 +62,16 @@ sweet_psci_cpu_on(uint64_t target, uint64_t entry, uint64_t context)
+ /* S9PMU: snapshot of the PMU block before CPU_ON */
+ static uint32_t s9pmu_snap[4096];
+ 
++/* s9pmu_ok: PMU byte offsets known to be readable (0152 aborted reading the whole block) */
++static bool
++s9pmu_ok(uint32_t o)
++{
++	return o == 0x414 || o == 0x41C || o == 0x500 || o == 0x1088 ||
++	       (o >= 0x2000 && o <= 0x203C) || o == 0x2040 || o == 0x2044 || o == 0x204C ||
++	       o == 0x2114 || o == 0x2180 || o == 0x21EC || o == 0x2258 ||
++	       o == 0x2380 || o == 0x2384;
++}
++
+ /* S9AFF: PSCI AFFINITY_INFO (0 ON, 1 OFF, 2 ON_PENDING, <0 error) */
+ static int32_t
+ sweet_psci_aff_info(uint64_t target)
+@@ -429,7 +439,9 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 	if (getCPUNumber() == 1 || getCPUNumber() == 4) {
+ 		s9pmu = (volatile uint32_t *)ml_io_map(0x14060000ULL, 0x4000);
+ 		for (int w = 0; w < 4096; w++) {
+-			s9pmu_snap[w] = s9pmu[w];
++			if (s9pmu_ok((uint32_t)w * 4)) {
++				s9pmu_snap[w] = s9pmu[w];
++			}
+ 		}
+ 	}
+ 	int32_t rc = sweet_psci_cpu_on(SWEET_PSCI_TARGET(cpu->phys_id), entry, getCPUNumber());
+@@ -440,6 +452,9 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 		}
+ 		int n = 0;
+ 		for (int w = 0; w < 4096; w++) {
++			if (!s9pmu_ok((uint32_t)w * 4)) {
++				continue;
++			}
+ 			uint32_t v = s9pmu[w];
+ 			if (v != s9pmu_snap[w] && n < 40) {
+ 				IOLog(CPU_PORT_NAME " S9PMU cpu=%u off=0x%x %x->%x\n", getCPUNumber(),
+@@ -447,7 +462,7 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 				n++;
+ 			}
+ 		}
+-		IOLog(CPU_PORT_NAME " S9PMU cpu=%u done, %d changed (max 40 shown)\n", getCPUNumber(), n);
++		IOLog(CPU_PORT_NAME " S9PMU cpu=%u done, %d changed (max 40, safe-list)\n", getCPUNumber(), n);
+ 	}
+ 	if (getCPUNumber() >= 4) {
+ 		for (int k = 0; k < 8; k++) {
