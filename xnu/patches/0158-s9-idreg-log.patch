@@ -1,0 +1,17 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 0d7236b..ff42a4e 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -297,6 +297,12 @@ SweetCPU::initCPU(bool boot)
+ 	   (unsigned long long)__builtin_arm_rsr64("MAIR_EL1"),
+ 	   (unsigned long long)__builtin_arm_rsr64("TTBR1_EL1"),
+ 	   (unsigned long long)__builtin_arm_rsr64("ACTLR_EL1"));
++	kprintf(CPU_PORT_NAME " S9ID cpu=%u ISAR0=%llx ISAR1=%llx PFR0=%llx MMFR1=%llx MMFR2=%llx\n",
++	  getCPUNumber(), (unsigned long long)__builtin_arm_rsr64("S3_0_C0_C6_0"),
++	  (unsigned long long)__builtin_arm_rsr64("S3_0_C0_C6_1"),
++	  (unsigned long long)__builtin_arm_rsr64("S3_0_C0_C4_0"),
++	  (unsigned long long)__builtin_arm_rsr64("S3_0_C0_C7_1"),
++	  (unsigned long long)__builtin_arm_rsr64("S3_0_C0_C7_2"));
+ 	__atomic_store_n(&initialized, 1, __ATOMIC_RELEASE);
+ }
+ 
