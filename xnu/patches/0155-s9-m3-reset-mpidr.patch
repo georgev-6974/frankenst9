@@ -1,0 +1,21 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 5cf2807..0178063 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -149,6 +149,16 @@ LEXT(reset_vector)
+ 	mrs		x15, MPIDR_EL1						// Load MPIDR to get CPU number
+ #if HAS_CLUSTER || defined(SWEET)
+ 	and		x0, x15, #0xFFFF					// Full Aff1:Aff0 (SWEET: core in Aff1)
++	/* S9M3MPIDR: Exynos M3 (MIDR implementer 0x53) has MPIDR 0x100+core (Aff1 = cluster);
++	 * the ADT phys id is 0x400 + (core << 8). Without this cpu 4 (0x100) matches A55 core 1. */
++	mrs		x2, MIDR_EL1
++	lsr		x2, x2, #24
++	cmp		x2, #0x53
++	b.ne		Ls9_not_m3
++	and		x0, x15, #0xFF
++	lsl		x0, x0, #8
++	add		x0, x0, #0x400
++Ls9_not_m3:
+ #else
+ 	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
+ #endif
