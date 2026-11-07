@@ -78,9 +78,9 @@ index 5bd24a7..dc8b6bd 100644
 +		entry = (vm_offset_t)TRAMP_PA;
 +			{
 +				int32_t drc = sweet_psci_cpu_on(cpu->phys_id, entry, getCPUNumber());
-+				for (int i = 0; i < 1000 && ((volatile uint32_t *)tv)[6] == 0; i++) IODelay(1000);
++				for (int i = 0; i < 2000; i++) IODelay(1000);
 +				uint32_t fl = ((volatile uint32_t *)tv)[6];
-+				if (fl != 0x7701) panic("S9TRAMP flag=0x%x rc=%d real=0x%llx tramp=0x%llx", fl, drc, real, TRAMP_PA);
++				panic("S9TRAMP flag=0x%x rc=%d real=0x%llx tramp=0x%llx", fl, drc, real, TRAMP_PA);
 +			}
 +	}
 +#endif
