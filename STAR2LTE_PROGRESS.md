@@ -411,3 +411,50 @@ Two areas at the end of USERDATA (`sda25`), both clear of the 16 GB iOS root ima
 **NEXT STEP**: make the A55 cores use MPIDR 0x0,0x100,0x200,0x300: (a) tools/mkadt_star2lte.py: in `cpu_order`/A55 base use core<<8 for the A55 cluster (cpu_node reg=mpidr); (b) patch 0125 expected_mpidr line (~lines 56-61: boot_cluster + cpu->cpu_id must become boot_cluster + (cpu->cpu_id<<8) for the A55 cluster); (c) PSCI CPU_ON target (cpu->phys_id) then becomes 0x100, which firmware may or may not accept (Linux DTB for this phone is the reference; check). (d) SGI/IPI target in patch 0101 already uses full Aff1 (fine). Then `s9go out-01NN` with cpus=2.
 **Diagnostics in tree (remove when done)**: 0125 S9FLAG panic (late startup-timeout panic in 0101/0115), 0141 (entry markers, may be superseded) and 0142-s9-reset-markers.patch (bit markers in reset_vector, writes PA 0x89f00020, data at 0x89f00030), make-0144.py. NEVER add lines to patch 0065 (build 0138 broke the context of 0112+). Put new start.s edits in a NEW patch generated with git against /tmp/xnu-orig (clone of xnu-8796.141.3; `git apply --check` it).
 **Not verified**: cores 2-3 and M3 cores 4-7, whether firmware accepts CPU_ON target 0x100, lock screen, performance gain.
+
+## HANDOFF 2026-11-07 (evening) - core 1 bring-up, S9+
+
+### Done
+- 0145 (core MPIDR): ADT uses MPIDR_EL1 numbering (A55 core n = n<<8, Aff1); PSCI target converted with
+  SWEET_PSCI_TARGET (A55 0..3, M3 0x100..). Result: cpu 1 wakes via low trampoline 0x89f00000, passes
+  reset_vector, prints "cpu 1 online", GIC lines, "cpu=1 entered initCPU mpidr=0x100".
+- 0146 v2 (diag): "Ticket lock unexpectedly owned" panic prints thread, ctid, owner and 6 return addresses.
+- 0147 (diag): every cpu kprintf's SCTLR/TCR/MAIR/TTBR1/ACTLR in initCPU.
+- 0148 (diag): boot-arg s9nocpuon=1 makes startCPU skip PSCI CPU_ON. make-0148.py written and syntax-checked;
+  NOT yet run by the user, so patch 0148 may not exist in the repo yet.
+
+### Open problem
+With cpus=2, panic "Ticket lock ... unexpectedly owned" (lock_ticket.c:155), ctid == lock owner.
+- Seen on cpu 0 (lock = _pset0 at 0xfffffff007b74880) and on cpu 1 (lock 0xfffffff03ba48100, probably a
+  dynamic pset for cluster 1; pset_find(cluster_id=1) returned -1 in the log).
+- Stack is always lck_ticket_contended <- thread_select <- thread_block_reason <- Call_continuation.
+- On cpu 1 the owner equals cpu 1's own thread (0x7b6bc) on a freshly created lock: unexplained.
+- No Sweet patch calls pset_lock/pset_unlock (grep empty); processor_startup balances lock/unlock.
+- Hypotheses, both UNPROVEN: (a) cache coherency / memory attributes / SMPEN on cpu 1;
+  (b) scheduler/pset bookkeeping with a second registered CPU in a cluster with no pset.
+
+### Last state (what went wrong at the end)
+The last test photos came from a STALE kernel: no s9nocpuon line, no 0147 SCTLR line, CPU_ON still called,
+bt present => it is the 0146 v2 build. Cause not found; earlier the same thing happened with out-0146 (old kernel
+left in the folder). The 0148 test has therefore NOT been done.
+
+### NEXT STEP
+1. User runs: python3 tools/star2lte/make-0148.py WORK2 ; commit; push; sleep 2 && gh run watch.
+2. gh run download RUNID -n xnu-kernel -D xnu/out-0149 (fresh folder).
+3. VERIFY before flashing: grep -a -c 's9nocpuon' and grep -a -c 'SCTLR=%llx' on the kernel; both must be >= 1.
+4. Boot cpus=2 with s9nocpuon=1 added to ARGS. Flash only the verified file; check the photo shows the
+   "s9nocpuon: NOT calling PSCI CPU_ON" line.
+5. Interpret: ticket-lock panic gone (probably a processor-start timeout instead) => needs cpu 1 hardware
+   activity, investigate coherency (compare cpu 0/1 SCTLR/TCR/MAIR/ACTLR/CPUECTLR). Panic still present =>
+   bookkeeping: look at the missing cluster-1 pset / processor registration, pset init for cluster 1.
+6. If cpu 1 ever prints its register line, compare with cpu 0 (cpu 0: TCR=22a5192519 MAIR=c08044f080bb44ff
+   TTBR1=8c28b1000; SCTLR read from a blurry photo).
+
+### Other open items
+- sweetfb_noconsole=1 does not stop console text overlaying the iOS screen after the progress bar; look at
+  a5xelte patches 0109/0110 (suspected override), 0046/0067. Unknown whether the 1-core run reached iOS.
+- Cores 2-3 and M3 MPIDRs unmeasured (M3 0x400.. is a placeholder). Test cpus=4 only after cpus=2 works.
+
+### User notes
+Uses fish. Wants copy-paste commands. Use "sleep 2 && gh run watch" after pushes. Downloads with -n xnu-kernel
+land directly in the folder; sym.sh: bash tools/dreamlte/sym.sh KERNEL ADDR... Keep replies short.
