@@ -1,0 +1,18 @@
+diff --git osfmk/arm64/start.s osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -320,8 +320,14 @@
+ Lsweet_secondary_bad_el:
+ 	b		.
+ Lsweet_secondary_el1:
++	MOV64	x2, 0x89f00020
++	mov		w3, #0x7702
++	str		w3, [x2]
+ 	/* x0 is deliberately unused; reset_vector selects CPU data by MPIDR. */
+ 	msr		SPSel, #1
++	MOV64	x2, 0x89f00020
++	mov		w3, #0x7703
++	str		w3, [x2]
+ 	b		EXT(LowResetVectorBase)
+ #endif /* SWEET */
+ 
