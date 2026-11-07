@@ -118,7 +118,7 @@
 +				IOLog(CPU_PORT_NAME " CPU: cpu=%u mpidr=0x%x NOT alive after 5s\n",
  				    i, topology->cpus[i].phys_id);
 -				panic("SWEET CPU: cpu=%u startup timeout (reset/MMU/GIC/SGI)", i);
-+				panic(CPU_PORT_NAME " CPU: cpu=%u startup timeout (reset/MMU/GIC/SGI) S9FLAG=0x%x", i, ((volatile uint32_t *)ml_io_map(0x89f00000ULL, 0x1000))[6]);
++				panic(CPU_PORT_NAME " CPU: cpu=%u startup timeout (reset/MMU/GIC/SGI) S9FLAG=0x%x EL=0x%x", i, ((volatile uint32_t *)ml_io_map(0x89f00000ULL, 0x1000))[8], ((volatile uint32_t *)ml_io_map(0x89f00000ULL, 0x1000))[9]);
  			}
  			IOSleep(1);
  		}

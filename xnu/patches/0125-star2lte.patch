@@ -70,9 +70,9 @@ index 5bd24a7..dc8b6bd 100644
 +		if (tv == 0) tv = ml_io_map(TRAMP_PA, 0x1000);
 +		volatile uint32_t *t = (volatile uint32_t *)tv;
 +		uint64_t real = (uint64_t)ml_static_vtop((vm_offset_t)&sweet_secondary_entry);
-+		static const uint32_t code[6] = { 0x100000C3, 0x528EE022, 0xB9000062, 0xD5033F9F, 0x58000081, 0xD61F0020 };
-+		for (int i = 0; i < 6; i++) t[i] = code[i];
-+		t[6] = 0; t[7] = 0; t[8] = (uint32_t)real; t[9] = (uint32_t)(real >> 32);
++		static const uint32_t code[8] = { 0x10000103, 0x528EE022, 0xB9000062, 0xD5384244, 0xB9000464, 0xD5033F9F, 0x58000081, 0xD61F0020 };
++		for (int i = 0; i < 8; i++) t[i] = code[i];
++		t[8] = 0; t[9] = 0; t[10] = (uint32_t)real; t[11] = (uint32_t)(real >> 32);
 +		__builtin_arm_dsb(DSB_SY);
 +		IOLog(CPU_PORT_NAME " CPU: cpu=%u tramp pa=0x%llx -> real entry 0x%llx\n", getCPUNumber(), TRAMP_PA, real);
 +		entry = (vm_offset_t)TRAMP_PA;
