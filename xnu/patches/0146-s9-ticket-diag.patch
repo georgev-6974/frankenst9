@@ -1,13 +1,25 @@
 diff --git a/osfmk/kern/lock_ticket.c b/osfmk/kern/lock_ticket.c
-index 7ba77d7..90ad4db 100644
+index 7ba77d7..37bf3c4 100644
 --- a/osfmk/kern/lock_ticket.c
 +++ b/osfmk/kern/lock_ticket.c
-@@ -140,7 +140,7 @@ __lck_ticket_owned_panic(lck_ticket_t *lck)
+@@ -140,7 +140,19 @@ __lck_ticket_owned_panic(lck_ticket_t *lck)
  {
  	thread_t self = current_thread();
  
 -	panic("Ticket lock %p is unexpectedly owned by thread %p", lck, self);
-+	panic("Ticket lock %p unexpectedly owned: thread %p ctid 0x%x owner 0x%x from %p", lck, self, (uint32_t)self->ctid, (uint32_t)lck->lck_ticket_owner, __builtin_return_address(0));
++	uintptr_t s9bt[6] = { 0, 0, 0, 0, 0, 0 };
++	uintptr_t *s9fp = (uintptr_t *)__builtin_frame_address(0);
++	for (int s9i = 0; s9i < 6; s9i++) {
++		if (((uintptr_t)s9fp & 0xf) != 0 || (uintptr_t)s9fp < 0xfffffff000000000ULL) {
++			break;
++		}
++		s9bt[s9i] = s9fp[1];
++		s9fp = (uintptr_t *)s9fp[0];
++	}
++	panic("Ticket lock %p unexpectedly owned: thread %p ctid 0x%x owner 0x%x bt %p %p %p %p %p %p",
++	   lck, self, (uint32_t)self->ctid, (uint32_t)lck->lck_ticket_owner,
++	   (void *)s9bt[0], (void *)s9bt[1], (void *)s9bt[2],
++	   (void *)s9bt[3], (void *)s9bt[4], (void *)s9bt[5]);
  }
  
  __abortlike
