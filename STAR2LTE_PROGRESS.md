@@ -458,3 +458,38 @@ left in the folder). The 0148 test has therefore NOT been done.
 ### User notes
 Uses fish. Wants copy-paste commands. Use "sleep 2 && gh run watch" after pushes. Downloads with -n xnu-kernel
 land directly in the folder; sym.sh: bash tools/dreamlte/sym.sh KERNEL ADDR... Keep replies short.
+
+## 2026-11-07 night: cores 0-3 (A55) start on the S9+ (user-reported + log v27)
+- Cause of the "Ticket lock unexpectedly owned" panic: with core MPIDRs 0x0/0x100/0x200/0x300 XNU derived the logical cluster from MPIDR Aff1 and created extra clusters without a pset. Patch 0149 (make-0149.py): cluster-id from the ADT (A55 = 0), every core's physical Aff1 registered in cluster_phys_to_logical. Patch 0150: MAX_CPU_CLUSTER_PHY_ID = 7 for A5XELTE (default 1, assertion failed for cpus=4).
+- RESULT: cpus=2 log v27: cpu 0/1 "came alive; SGI1 OK", "2/2 CPUs initialized". cpus=4 (build out-0151): user reported cpu 0-3 start. Boot-time gain not measured yet.
+- NOT done: M3 cores 4-7 (MPIDR 0x400.. and PSCI targets are placeholders), lock screen, performance.
+- Workflow notes: WORK2 is stale (patches up to 0142); WORK3 = WORK2 + 0145-0148 and is the tree to diff against. fish `ls` is aliased (no -t), use explicit file names.
+
+## HANDOFF 2026-11-07 (night) - A55 cores 0-3 run; M3 cores 4-7 do not start yet
+
+**Goal / user rules:** boot iOS faster on the S9+ by starting more CPU cores (all rendering is on the CPU). User runs fish on Arch, is new to git/kernels: give copy-paste commands with expected output; short replies; `mv` for new files; heredocs (`<<`) do not work in fish (type `bash`, paste, `exit`, or give a file and use `cat file >> target`). Fish `ls` is aliased: `-t`/`--time=mtime` fail, use explicit names. Keep `AGENTS.md` rules: build / kernel marker / screen / iOS runtime are separate claims; no S8 address without a measurement; never edit shim/dreamlte, tools/dreamlte, DREAMLTE_PROGRESS.md, NOTES.md.
+
+### Done (user-reported photos/logs, S9+ device)
+- **cpus=4 works**: cores 0-3 (Cortex-A55, ADT MPIDR 0x0/0x100/0x200/0x300) "came alive; SGI1 OK", reaches the Apple logo (kernel `xnu/out-0151`, args from `s9go ... 4`). Boot time vs the ~50 min 1-core baseline NOT measured yet. Lock screen not reached in any run so far; frames from iOS are still opaque black (FBDIAG nonblack 0/64).
+- **Root cause of the "Ticket lock unexpectedly owned" panic (0145 era):** XNU `ml_parse_cpu_topology` derives the logical cluster from MPIDR Aff1, so 4 cores with Aff1 0..3 became 4 clusters. Fixed by **0149** (`tools/star2lte/make-0149.py`, machine_routines.c: cluster-id from ADT, every core's Aff1 registered in `cluster_phys_to_logical`) and **0150** (`make-0150.py`, board_config.h: `MAX_CPU_CLUSTER_PHY_ID 7` for A5XELTE; default was MAX_CPU_CLUSTERS-1 = 1, assertion `machine_routines.c:1058` failed for cpus=4).
+- **Local ADT edits in `tools/mkadt_star2lte.py`** (no CI needed; check `git status`, commit was requested): M3 nodes now also get `arm,cortex-a53` in `compatible` (else SweetCPU never registers them: "cpu=4 NOT registered"), and `cluster-id` is 0 for ALL cores (one pset).
+- `s9go` (fish function, funcsave'd) now reuses `xnu/NAME` if it holds a kernel; third arg `fresh` forces a CI re-download.
+
+### M3 (cpu 4-7) findings
+- With cluster-id 1 for the M3 node: `pset_find(cluster_id=1) returned -1` is normal (pset gets created), but the `_pset0` ticket-lock panic returns as soon as a cluster-1 processor registers. Hypothesis (unproven): this build is not `__AMP__`, two psets under pset_node0 break the scheduler. Workaround in use: all 8 cores in logical cluster 0.
+- With one pset, `cpus=5`: cpu 4 registers (pset 0), `CPU_ON target=0x400` (ADT MPIDR, placeholder) -> `SWEET_PSCI_TARGET` converts to PSCI target 0x100 -> firmware `rc=0` -> `cpu=4 NOT alive after 10s`, `S9FLAG=0x0 EL=0x0`: the core never reached the low trampoline (marker word cleared before CPU_ON, written by trampoline). The 3rd D value 0x81000300 is probably stale from core 3 (unverified). Real M3 MPIDR_EL1 still UNKNOWN (placeholder 0x400+).
+- Device facts (star2lte-facts/live.dts, measured on the phone running Linux): A55 cpu@0..3 (implementer 0x41 part 0xd05), Meerkat/M3 cpu@0x100..0x103 (`arm,meerkat`, implementer 0x53 part 0x002), PSCI via smc, cpu_on 0xc4000003. PMU syscon `samsung,exynos9810-pmu` at **0x14060000** size 0x10000 (the S8 value 0x16480000 in donor code is wrong for the S9+; PMU steps stay disabled for STAR2LTE). DT has no CPU power offsets.
+- TWRP limits: no busybox, no /dev/mem (CONFIG_DEVMEM unset), PMU not in regmap debugfs. `mount -t debugfs none /sys/kernel/debug` works. Debugfs has `acpm_framework`, `flexpmu-dbg/{cpu_status,cur_sequence,lpm_count,mif_always_on,seq_count,seq_status,sw_flag}`, `exynos-pd` (only peripheral domains: aud, dpu, dspm, dsps, embedded_g3d, g2d, isphq, isplp, isppre, iva, mfc, vts: no CPU cluster), `exynos-pm`. Suggests CPU/cluster power is sequenced by FlexPMU/ACPM firmware (inference from names).
+
+### NEXT (in order)
+1. Free measurement in TWRP: `adb shell 'mount -t debugfs none /sys/kernel/debug; cat /sys/kernel/debug/flexpmu-dbg/cpu_status'` with all 8 online, then offline cpu4-7 (`echo 0 > /sys/devices/system/cpu/cpuN/online`), cat again, diff; also read seq_status/sw_flag. Save under star2lte-facts/pmu/.
+2. Diagnostic kernel patch (new patch 0151, generated with git against WORK3/xnu, NOT in 0065): after CPU_ON for cpu >= 4 log PSCI AFFINITY_INFO (0xc4000004, target 0x100) a few times over the 10 s: 0 ON (dies before trampoline: entry/EL/cache), 2 ON_PENDING (firmware waiting: cluster power), 1 OFF (never started). Also try other PSCI targets for cpu 4.
+3. Only then think about M3 power-up; do not reuse S8 PMU offsets. Real M3 MPIDR comes from the panic tail `D=` once a core runs.
+4. Measure the 4-core boot time (progress bar vs ~50 min on 1 core) before spending more on M3.
+5. Other open items: console text still overlays iOS despite `sweetfb_noconsole=1` (see a5xelte patches 0109/0110, 0046/0067); iOS draws black; AKS selectors 2/3/6/31/34/93 unsupported; fairplayd/bluetoothd respawn loop fills the 4 MiB log ring; RAM window 768 MiB.
+
+### Workflow / commands
+- Tree to diff patches against: `WORK3/xnu` (= WORK2 + patches 0145-0148 committed; WORK2 alone is stale at 0142). Generate: `python3 tools/star2lte/make-01NN.py WORK3/xnu (pwd)/xnu/patches/01NN-name.patch`, `cat` it, then `git add ...; git commit -m ...; git push; sleep 2 && gh run watch`. CI kernel build ~9 min.
+- Test: phone in TWRP, `s9go out-0151 N` (N = cpus; boot-args are inside s9go; `cpus=` is required for SMP). `cpus=5` currently panics (cpu 4 timeout): use `cpus=4` as the working setup. After boot: TWRP (Power+Vol Down, then Power+Bixby+Vol Up), `bash tools/star2lte/s9.sh pull` (writes logs/sweetlog-vNN.txt; read the version it prints), `grep -a 'came alive\|CPUs initialized\|NOT alive' logs/sweetlog-vNN.txt`.
+- Verify a kernel before flashing when in doubt: `grep -a -c 'STRING' xnu/out-NNNN/kernel.development.a5xelte`. Stale-kernel mix-ups caused earlier false results.
+- Never add lines to xnu/patches/0065 (broke 0112+ context in build 0138).
