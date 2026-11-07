@@ -34,7 +34,7 @@ import adt  # noqa: E402
 import mkadt  # noqa: E402
 
 DRAM_BASE = 0x8c0000000   # NOT 0x880000000: firmware-reserved there
-DRAM_SIZE = 0x20000000
+DRAM_SIZE = 0x30000000
 FB_PHYS, FB_W, FB_H = 0xcc000000, 1440, 2960
 TIMEBASE = 26000000
 IO_BASE = 0x10000000        # /arm-io ranges parent; reg values are offsets
@@ -77,7 +77,9 @@ def cpu_order(boot_mpidr):
 def cpu_node(logical, cluster_info, mpidr, core):
     return [
         ('device_type', mkadt.cstr('cpu')),
-        ('compatible', mkadt.cstr(cluster_info['name']) + mkadt.cstr('ARM,v8')),
+        ('compatible', mkadt.cstr(cluster_info['name']) +
+         (mkadt.cstr('arm,cortex-a53') if cluster_info is A55 else b'') +  # SweetCPU matches a53 (patch 0086)
+         mkadt.cstr('ARM,v8')),
         ('reg', mkadt.u32(mpidr)),
         ('cpu-id', mkadt.u32(logical)),
         ('cluster-id', mkadt.u32(cluster_info['cluster'])),
