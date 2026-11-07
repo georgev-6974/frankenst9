@@ -59,7 +59,7 @@ index 5bd24a7..dc8b6bd 100644
  	/* Exynos 8895: logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster);
  	 * logical 4..7 = Mongoose M2 MPIDR 0..3. */
  	uint32_t expected_mpidr = cpu->cpu_id < 4 ? 0x100U + cpu->cpu_id :
-@@ -296,7 +301,28 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+@@ -296,7 +301,22 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
  	vm_offset_t entry = ml_static_vtop((vm_offset_t)&sweet_secondary_entry);
  	IOLog(CPU_PORT_NAME " CPU: cpu=%u CPU_ON target=0x%x entry_pa=0x%llx context=%u\n",
  	    getCPUNumber(), cpu->phys_id, (uint64_t)entry, getCPUNumber());
@@ -76,12 +76,6 @@ index 5bd24a7..dc8b6bd 100644
 +		__builtin_arm_dsb(DSB_SY);
 +		IOLog(CPU_PORT_NAME " CPU: cpu=%u tramp pa=0x%llx -> real entry 0x%llx\n", getCPUNumber(), TRAMP_PA, real);
 +		entry = (vm_offset_t)TRAMP_PA;
-+			{
-+				int32_t drc = sweet_psci_cpu_on(cpu->phys_id, entry, getCPUNumber());
-+				for (int i = 0; i < 2000; i++) IODelay(1000);
-+				uint32_t fl = ((volatile uint32_t *)tv)[6];
-+				panic("S9TRAMP flag=0x%x rc=%d real=0x%llx tramp=0x%llx", fl, drc, real, TRAMP_PA);
-+			}
 +	}
 +#endif
 -#if defined(DREAMLTE)
