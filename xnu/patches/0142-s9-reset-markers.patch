@@ -1,0 +1,38 @@
+diff --git osfmk/arm64/start.s osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -129,6 +129,9 @@
+ 	// Unlock the core for debugging
+ 	msr		OSLAR_EL1, xzr
+ 	msr		DAIFSet, #(DAIFSC_ALL)				// Disable all interrupts
++	MOV64	x10, 0x89f00020
++	mov		w11, #0x7704
++	str		w11, [x10]
+ 
+ #if !(defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR))
+ 	// Set low reset vector before attempting any loads
+@@ -162,6 +165,9 @@
+ 	b.eq	Lskip_cpu_reset_handler				// Not found
+ 	b		Lcheck_cpu_data_entry	// loop
+ Lfound_cpu_data_entry:
++	MOV64	x10, 0x89f00020
++	mov		w11, #0x7706
++	str		w11, [x10]
+ 	adrp	x20, EXT(const_boot_args)@page
+ 	add		x20, x20, EXT(const_boot_args)@pageoff
+ 	ldr		x0, [x21, CPU_RESET_HANDLER]		// Call CPU reset handler
+@@ -191,8 +197,14 @@
+ 	msr		TPIDR_EL1, x13
+ #endif /* __ARM_KERNEL_PROTECT__ */
+ 
++	MOV64	x10, 0x89f00020
++	mov		w11, #0x7708
++	str		w11, [x10]
+ 	blr		x0
+ Lskip_cpu_reset_handler:
++	MOV64	x10, 0x89f00020
++	mov		w11, #0x7707
++	str		w11, [x10]
+ 	b		.									// Hang if the handler is NULL or returns
+ 
+ 	.align 3
