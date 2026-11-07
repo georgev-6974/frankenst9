@@ -12,7 +12,19 @@ diff --git osfmk/arm64/start.s osfmk/arm64/start.s
  
  #if !(defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR))
  	// Set low reset vector before attempting any loads
-@@ -162,6 +166,10 @@
+@@ -149,6 +153,11 @@
+ 	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
+ #endif
+ 	ldr		x1, [x19, CPU_DATA_ENTRIES]			// Load start of data entries
++	MOV64	x10, 0x89f00030
++	str		w1, [x10]
++	ldr		x9, [x1, #(16 + CPU_DATA_PADDR)]
++	str		w9, [x10, #4]
++	str		w15, [x10, #8]
+ 	add		x3, x1, MAX_CPUS * 16				// end addr of data entries = start + (16 * MAX_CPUS)
+ Lcheck_cpu_data_entry:
+ 	ldr		x21, [x1, CPU_DATA_PADDR]			// Load physical CPU data address
+@@ -162,6 +171,10 @@
  	b.eq	Lskip_cpu_reset_handler				// Not found
  	b		Lcheck_cpu_data_entry	// loop
  Lfound_cpu_data_entry:
@@ -23,7 +35,7 @@ diff --git osfmk/arm64/start.s osfmk/arm64/start.s
  	adrp	x20, EXT(const_boot_args)@page
  	add		x20, x20, EXT(const_boot_args)@pageoff
  	ldr		x0, [x21, CPU_RESET_HANDLER]		// Call CPU reset handler
-@@ -177,6 +185,10 @@
+@@ -177,6 +190,10 @@
  	cmp		x0, x2
  	bne		Lskip_cpu_reset_handler
  1:
@@ -34,7 +46,7 @@ diff --git osfmk/arm64/start.s osfmk/arm64/start.s
  
  #if HAS_BP_RET
  	bl		EXT(set_bp_ret)
-@@ -191,8 +203,16 @@
+@@ -191,8 +208,16 @@
  	msr		TPIDR_EL1, x13
  #endif /* __ARM_KERNEL_PROTECT__ */
  
