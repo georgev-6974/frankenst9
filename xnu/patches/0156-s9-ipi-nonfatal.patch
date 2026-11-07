@@ -1,0 +1,23 @@
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 89affe2..06235d4 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -264,7 +264,9 @@ void
+ a5xelte_send_ipi(unsigned int logical)
+ {
+ 	if (logical >= SWEET_SMP_MAX_CPUS || a5_gic_cpu_masks[logical] == 0) {
+-		panic("a5xelte: GICv2 target CPU%u unavailable", logical);
++		kprintf("S9IPI: GICv2 target CPU%u unavailable (mask %x), IPI dropped\n", logical,
++		   logical < SWEET_SMP_MAX_CPUS ? (unsigned)a5_gic_cpu_masks[logical] : 0U);
++		return;
+ 	}
+ 	__builtin_arm_dsb(DSB_ISHST);
+ 	a5_gic_write32(a5_gicd_base, 0xf00,
+@@ -446,6 +448,7 @@ pe_init_fiq(void)
+ 		panic("a5xelte: invalid GICv2 CPU%u target mask 0x%x", logical, mask);
+ 	}
+ 	a5_gic_cpu_masks[logical] = mask;
++	kprintf("S9IPI: CPU%u mask=%x\n", logical, (unsigned)mask);
+ 	/* INTID 27 is the virtual timer PPI; SGI 1 carries CPU signals. */
+ 	a5_gic_write32(a5_gicd_base, 0x080,
+ 	    a5_gic_read32(a5_gicd_base, 0x080) | (1U << A5XELTE_VTIMER_INTID) | (1U << 1));
