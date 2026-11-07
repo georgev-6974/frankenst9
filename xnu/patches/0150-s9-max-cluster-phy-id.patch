@@ -1,0 +1,15 @@
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+index 1cf0ea0..8da7aaa 100644
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -116,6 +116,10 @@
+ #define MAX_CPU_CLUSTERS               2
+ 
+ #define CORE_NCTRS                     8
++/* S9CLUSTER: MPIDR Aff1 is the core number (A55 0..3, M3 4..7) */
++#ifndef MAX_CPU_CLUSTER_PHY_ID
++#define MAX_CPU_CLUSTER_PHY_ID         7
++#endif
+ #endif  /* ARM64_BOARD_CONFIG_A5XELTE */
+ 
+ #ifdef ARM64_BOARD_CONFIG_VMAPPLE
