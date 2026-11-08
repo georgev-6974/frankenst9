@@ -1,0 +1,15 @@
+diff --git a/bsd/dev/a5xelte_keys.c b/bsd/dev/a5xelte_keys.c
+index dcbd143..b2b3769 100644
+--- a/bsd/dev/a5xelte_keys.c
++++ b/bsd/dev/a5xelte_keys.c
+@@ -18,7 +18,9 @@
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void sweet_hid_key(int key, int down);
+ 
+-#if defined(DREAMLTE)
++#if defined(STAR2LTE)
++#define A5_ALIVE_PA 0x14050000u            /* Exynos 9810 AON, measured by s9survey (0165) */
++#elif defined(DREAMLTE)
+ #define A5_ALIVE_PA 0x164b0000u            /* Exynos 8895 pinctrl ALIVE */
+ #else
+ #define A5_ALIVE_PA 0x139b0000u
