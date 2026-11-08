@@ -1,0 +1,47 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index deeb5e5..4c1891b 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1318,6 +1318,42 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		printf("S9SURVEY P12: done\n");
+ 	}
+ 
++	if (level == 13) {
++		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
++		vm_offset_t usi = ml_io_map(0x10411000, 0x1000);
++		uint8_t b[3] = { 0, 0, 0 };
++		uint32_t u0 = 0xdead;
++		if (!i2c || !usi) {
++			printf("S9SURVEY P13: mapping failed\n");
++		} else if (s9_probe_read32(usi + 0x1c, &u0)) {
++			printf("S9SURVEY P13: usi +1c read faulted\n");
++		} else {
++			uint32_t con = a5touch_read(pin, 0x20);
++			uint32_t pud = a5touch_read(pin, 0x28);
++			a5touch_write(usi, 0x1c, 4);
++			a5touch_write(pin, 0x20, (con & ~0x00ff0000u) | 0x00220000u);
++			a5touch_write(pin, 0x28, pud & ~0x00ff0000u);
++			printf("S9SURVEY P13 usi+1c %08x -> %08x, gpp1 DAT %08x\n", u0,
++			    a5touch_read(usi, 0x1c), a5touch_read(pin, 0x24));
++			s9i2c_reset(i2c);
++			s9survey_pdump("P13 i2c", i2c, 0x80);
++			if (s9i2c_cmd_read(i2c, 0x55, b, 1)) {
++				printf("S9SURVEY P13: chip ACKed at 0x48, cmd 0x55 -> %02x\n", b[0]);
++				if (s9i2c_cmd_read(i2c, 0x52, b, 3)) {
++					printf("S9SURVEY P13: cmd 0x52 -> %02x %02x %02x\n", b[0], b[1], b[2]);
++				}
++			} else {
++				printf("S9SURVEY P13: no ACK from 0x48\n");
++			}
++			s9survey_pdump("P13 i2c after", i2c, 0x80);
++			printf("S9SURVEY P13 gpp1 DAT %08x\n", a5touch_read(pin, 0x24));
++			a5touch_write(pin, 0x20, con);
++			a5touch_write(pin, 0x28, pud);
++			a5touch_write(usi, 0x1c, u0);
++			printf("S9SURVEY P13: restored\n");
++		}
++	}
++
+ 	for (unsigned i = 0; i < 64; i++) {
+ 		prev[i] = a5touch_read(aon, i * 4);
+ 	}
