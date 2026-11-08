@@ -659,7 +659,7 @@ s9t_thread(void *arg, __unused wait_result_t wr_)
     }
 out:
     printf("S9TOUCH: thread ends\n");
-    thread_terminate(current_thread());
+    thread_terminate_self();
 }
 
 static void

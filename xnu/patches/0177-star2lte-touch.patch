@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
-index 3d2a4d6..b0a4645 100644
+index 3d2a4d6..7e925ac 100644
 --- a/bsd/dev/a5xelte_touch.c
 +++ b/bsd/dev/a5xelte_touch.c
 @@ -1428,6 +1428,652 @@ s9survey_start(void)
@@ -634,7 +634,7 @@ index 3d2a4d6..b0a4645 100644
 +    }
 +out:
 +    printf("S9TOUCH: thread ends\n");
-+    thread_terminate(current_thread());
++    thread_terminate_self();
 +}
 +
 +static void
