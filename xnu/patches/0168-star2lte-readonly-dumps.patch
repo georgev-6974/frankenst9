@@ -1,0 +1,45 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 7c5241e..631c7f9 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -962,6 +962,23 @@ s9survey_dump(const char *tag, vm_offset_t base, unsigned len)
+ 	}
+ }
+ 
++static void
++s9survey_pdump(const char *tag, vm_offset_t base, unsigned len)
++{
++	for (unsigned o = 0; o < len; o += 16) {
++		char b[4][12];
++		for (unsigned i = 0; i < 4; i++) {
++			uint32_t x = 0;
++			if (s9_probe_read32(base + o + 4 * i, &x)) {
++				snprintf(b[i], sizeof(b[i]), "--------");
++			} else {
++				snprintf(b[i], sizeof(b[i]), "%08x", x);
++			}
++		}
++		printf("S9SURVEY %s +%03x: %s %s %s %s\n", tag, o, b[0], b[1], b[2], b[3]);
++	}
++}
++
+ static void
+ s9i2c_reset(vm_offset_t bus)
+ {
+@@ -1094,6 +1111,16 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		}
+ 		printf("S9SURVEY PROBE done\n");
+ 	}
++	if (level == 5) {
++		vm_offset_t i2c5 = ml_io_map(S9_I2C_PA, 0x1000);
++		printf("S9SURVEY P5: read-only dumps, -------- = abort\n");
++		if (i2c5) {
++			s9survey_pdump("I2C10", i2c5, 0x100);
++		}
++		s9survey_pdump("USI", usi, 0x40);
++		s9survey_pdump("PIN", pin, 0x200);
++		printf("S9SURVEY P5: done\n");
++	}
+ 
+ 	if (level == 3) {
+ 		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
