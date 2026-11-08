@@ -1,0 +1,13 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 6b9851d..d7430f6 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -470,7 +470,7 @@ AppleCLCD::present(const uint8_t *rec)
+ 		{
+ 			static uint32_t sweet_dbg_n;
+ 			sweet_dbg_n++;
+-			if (1) {
++			if (sweet_dbg_n <= 20 || (sweet_dbg_n % 1000) == 0) {
+ 				if (src == 0 || bpe != 4) {
+ 					IOLog("SWEET FBDIAG: n %u SKIP src %lx bpe %u ew %u eh %u mem %p last %llu len %llu w %d h %d\n",
+ 					   sweet_dbg_n, (unsigned long)src, bpe, (unsigned)s->elementWidth,
