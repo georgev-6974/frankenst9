@@ -1,0 +1,19 @@
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 06235d4..f5b93a4 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -328,10 +328,13 @@ a5xelte_hb_init(void)
+ 	hb_fb = (volatile uint32_t *)ml_io_map(A5_FB_PHYS, 0x180000);
+ }
+ 
++/* Set by AppleCLCD once the GUI presents (patch 0067). */
++extern int sweet_console_muted;
++
+ static void
+ hb_row(unsigned row, uint32_t value)
+ {
+-	if (!hb_fb) {
++	if (!hb_fb || sweet_console_muted) {
+ 		return;
+ 	}
+ 	const unsigned x0 = 120, y0 = 70 + row * 36, stride = A5_FB_STRIDE / 4;
