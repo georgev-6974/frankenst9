@@ -1,0 +1,77 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index b1094e9..ae6b1fe 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -425,6 +425,40 @@ SweetHIDButtons::testFired(OSObject *owner, IOTimerEventSource *sender)
+ 	}
+ }
+ 
++/*
++ * sweettap=x,y,secs: injected tap for bring-up. x,y in panel pixels (1440x2960).
++ */
++static IOTimerEventSource *gSweetTapTimer;
++static int gSweetTapX, gSweetTapY, gSweetTapSecs, gSweetTapN, gSweetTapStage;
++
++static void
++sweetTapFired(OSObject *owner, IOTimerEventSource *sender)
++{
++	(void)owner;
++	int hx = gSweetTapX * 1080 / 1440;
++#if defined(ARM64_BOARD_CONFIG_A5XELTE)
++	int hy = gSweetTapY * 1920 / 2960;
++#else
++	int hy = gSweetTapY * 2400 / 2960;
++#endif
++	if (!gSweetTouch) {
++		return;
++	}
++	if (gSweetTapStage == 0) {
++		IOLog("SWEET HID: sweettap %d at %d,%d (hook %d,%d)\n", gSweetTapN + 1,
++		   gSweetTapX, gSweetTapY, hx, hy);
++		gSweetTouch->touch(0, true, hx, hy);
++		gSweetTapStage = 1;
++		sender->setTimeoutMS(150);
++	} else {
++		gSweetTouch->touch(0, false, hx, hy);
++		gSweetTapStage = 0;
++		if (++gSweetTapN < 30) {
++			sender->setTimeoutMS((UInt32)gSweetTapSecs * 1000);
++		}
++	}
++}
++
+ bool
+ SweetHIDTouch::start(IOService *provider)
+ {
+@@ -454,6 +488,31 @@ SweetHIDTouch::start(IOService *provider)
+ #endif
+ 	gSweetTouch = this;
+ 	registerService();
++	{
++		char tapArg[48];
++		if (PE_parse_boot_arg_str("sweettap", tapArg, sizeof(tapArg))) {
++			int v[3] = { 0, 0, 0 }, k = 0;
++			for (const char *p = tapArg; *p && k < 3; p++) {
++				if (*p >= '0' && *p <= '9') {
++					v[k] = v[k] * 10 + (*p - '0');
++				} else if (*p == ',') {
++					k++;
++				}
++			}
++			if (k >= 2 && v[2] > 0) {
++				gSweetTapX = v[0];
++				gSweetTapY = v[1];
++				gSweetTapSecs = v[2];
++				gSweetTapTimer = IOTimerEventSource::timerEventSource(this, &sweetTapFired);
++				if (gSweetTapTimer && _hidWorkLoop->addEventSource(gSweetTapTimer) == kIOReturnSuccess) {
++					gSweetTapTimer->setTimeoutMS((UInt32)v[2] * 1000);
++					IOLog("SWEET HID: sweettap armed %d,%d every %d s\n", v[0], v[1], v[2]);
++				}
++			} else {
++				IOLog("SWEET HID: sweettap needs x,y,secs\n");
++			}
++		}
++	}
+ 	IOLog("SWEET HID: touch registered\n");
+ 	return true;
+ }
