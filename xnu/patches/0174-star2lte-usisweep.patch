@@ -1,0 +1,66 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 23a5aaa..deeb5e5 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1057,6 +1057,16 @@ fail:
+ 	return false;
+ }
+ 
++/* Does hsi2c timing reg +0x60 take a write? (block alive) */
++static bool
++s9i2c_takes_writes(vm_offset_t i2c)
++{
++	a5touch_write(i2c, 0x60, 0x01020304u);
++	uint32_t rb = a5touch_read(i2c, 0x60);
++	a5touch_write(i2c, 0x60, 0);
++	return rb != 0;
++}
++
+ static void
+ s9survey_thread(void *arg, wait_result_t result)
+ {
+@@ -1270,6 +1280,44 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		printf("S9SURVEY P10: done\n");
+ 	}
+ 
++	if (level == 11) {
++		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
++		vm_offset_t usi = ml_io_map(0x10411000, 0x1000);
++		if (!i2c || !usi) {
++			printf("S9SURVEY P11: mapping failed\n");
++		} else {
++			for (unsigned o = 0x08; o <= 0x38; o += 4) {
++				uint32_t orig = 0;
++				if (s9_probe_read32(usi + o, &orig)) {
++					printf("S9SURVEY P11 usi +%02x: read faulted\n", o);
++					continue;
++				}
++				a5touch_write(usi, o, 4);
++				bool hit = s9i2c_takes_writes(i2c);
++				printf("S9SURVEY P11 usi +%02x orig %08x -> 4: hsi2c10 %s\n", o, orig, hit ? "ALIVE" : "dead");
++				a5touch_write(usi, o, orig);
++			}
++		}
++		printf("S9SURVEY P11: done\n");
++	}
++	if (level == 12) {
++		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
++		vm_offset_t cmu = ml_io_map(0x10400000, 0x8000);
++		if (!i2c || !cmu) {
++			printf("S9SURVEY P12: mapping failed\n");
++		} else {
++			for (unsigned k = 0; k < 26; k++) {
++				unsigned o = 0x3000 + 4 * k;
++				uint32_t orig = a5touch_read(cmu, o);
++				a5touch_write(cmu, o, orig ^ 1u);
++				bool hit = s9i2c_takes_writes(i2c);
++				a5touch_write(cmu, o, orig);
++				printf("S9SURVEY P12 qch +%04x (%08x ^1): hsi2c10 %s\n", o, orig, hit ? "ALIVE" : "dead");
++			}
++		}
++		printf("S9SURVEY P12: done\n");
++	}
++
+ 	for (unsigned i = 0; i < 64; i++) {
+ 		prev[i] = a5touch_read(aon, i * 4);
+ 	}
