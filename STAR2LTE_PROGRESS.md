@@ -687,3 +687,28 @@ Working touch on the S9+ (star2lte). Kernel 0162+, 8 cores, iOS 16.7.16 reaches 
 ### Risks
 - A peripheral read can panic the kernel (just happened). Each survey level must say in its log what it touches.
 - Everything about touch hardware reachability is untested.
+
+### 0165 result (observed)
+S9SURVEY level 1 ran without panic. AON (0x14050000) keys, active low: volup +024 bit3, voldown +024 bit4, bixby +024 bit6, power +064 bit4. Order-based, two cycles plus voldown+power combo consistent. 0x104xxxxx block still unreachable (0164 abort, esr 0x96000010). Level 3 untested.
+
+### 0166 result (observed)
+a5keys=1 with S9+ AON base 0x14050000: keys log clean down/up (power=0, volup=1, voldown=2, bixby=3). Bixby = Home works on screen (unlocks lockscreen). Power: double press locks, single does nothing (cause unknown). Volume: no visible effect (unchecked). A5_KEYS_DEFAULT still 0, use a5keys=1.
+TODO after touch: remap Bixby to the ringer toggle (needs the right HID usage for iOS, not yet checked). Consider A5_KEYS_DEFAULT=1 for STAR2LTE.
+
+### 0166 survey result: touch IRQ (observed)
+s9survey=1 with touching, 19 AON lines: gpa1 DAT (+044) stayed 0x10 (IRQ pin0 = 0), con=0 (input), pud=0x13101111. Only key-register changes. Inconclusive for rails. dts: sec_ts@0x48 on hsi2c@104B0000 (clocks from clock-controller@0x15a80000, ids 0xe0 rate / 0xcd gate), irq gpa1 pin0, irq_type 0x2008, max_coords 0x1000x0x1000, sec,regulator_boot_on. No usi@10411000 node in live.dts: 0164 USI address unconfirmed.
+
+### 0167 result (observed)
+Nofault probe (s9_probe_read32 + sleh.c ext-abort recovery) works: faults recovered, no panic. s9survey=4: hsi2c@104B0000 +00..+40 readable, all 0. USI 0x10411000 +00=1 ok, +04 FAULT (this was the 0164 panic). Pin block 0x10430000 readable (+08 11110000, +0c 22220000, +24 c0, +40 11000000). 0x15a80000 (dts clock-controller), 0x10400000, 0x10800000: FAULT. So the 0x104xxxxx block is NOT wholly dead. s9survey=3 must stay off (reads USI+4).
+
+### 0168 result (observed)
+s9survey=5 read-only nofault dumps. hsi2c10: 0x00-0xbf all 0, 0xc4..0xdc non-zero constants (c4=1 c8=1 cc=02070000 d0=02010001 d4=02020000 d8=02040000 dc=00400040): register file answers. USI 0x10411000: +00=1, +04 abort, +08/10/18/20/28/30/38 = 4 (guess: I2C mode value). Pin block 0x10430000 dumped 0x200: no CON word 00220000 (gpp1-4/5 func 2) seen; bank of gpp1 in this block NOT yet identified. gpa1 pin0 state matches dts off_state (guess: chip unpowered?).
+
+### CORRECTION to the 0165/0166 touch-IRQ reading
+Earlier notes used AON +044 as gpa1 DAT: WRONG. dts pinctrl@14050000 bank order gpa0 gpa1 gpa2 gpa3 gpq0 gpa4 (0x20 stride, ASSUMED) puts gpa1 at +020, DAT +024: touch IRQ gpa1-0 = bit0 of +024, 0 in all dumps (5e 56 4e 1e), CON 0, PUD 1 = dts off_state attn_input. Keys: volup/voldown/bixby = gpa1 bits 3/4/6 (+024), power = gpa3 bit4 (+064); +040 is gpa2. pinctrl@10430000 banks gpp0 gpp1 gpp2 gpp3 gpg0 gpg1 gpg2: gpp1 at +020: CON 0 DAT c0 PUD 11111111. gpp1-4/5 (hsi2c10) read 0, not muxed; gpp1-6/7 (hsi2c11) read 1 despite pull-down. GUESS: hsi2c10 pull-ups unpowered => tsp_io probably off; gpa1-0 low with pull-down also fits an unpowered chip. Not measured.
+
+### Touch rails (read from live.dts, not measured)
+tsp_io = s2mps18mfd LDO35, 1.8 V (0x1b7740 uV), boot-on, initial-mode 2. tsp_avdd = s2mps18mfd LDO43, 3.0 V (0x2dc6c0 uV), boot-on, initial-mode 3. NOT the S8 LDO34/35 of the S2MPS17. Whether S-Boot leaves them on is unmeasured (pin evidence leans off). Need: PMIC register addresses for LDO35/LDO43 and the ACPM IPC command format before any write.
+
+### TWRP regulator view (measured in TWRP Linux, not our boot)
+tsp_io regulator.67 enabled 1800000 users 1; tsp_avdd regulator.74 enabled 3000000 users 1. debugfs regmap has NO s2mps18 entry (ACPM owns the PMIC); acpm_framework has only ipc_loopback_test and log_level. dts: acpm_ipc reg 0x14100000/0x1000 + 0x2039000/0x30000, initdata-base 0x7f00, PMIC = ipc channel 2. LDO35/LDO43 register addresses and the channel-2 message format are UNKNOWN. Plan: 0169 I2C attempt first (is the rail already on in our boot?), ACPM only if NACK.
