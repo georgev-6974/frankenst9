@@ -1,0 +1,44 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 631c7f9..42b0b13 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1142,6 +1142,39 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		}
+ 	}
+ 
++	if (level == 6) {
++		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
++		uint8_t b[3] = { 0, 0, 0 };
++		if (!i2c) {
++			printf("S9SURVEY P6: I2C mapping failed\n");
++		} else {
++			uint32_t con = a5touch_read(pin, 0x20);
++			uint32_t pud = a5touch_read(pin, 0x28);
++			printf("S9SURVEY P6 gpp1 before: CON %08x DAT %08x PUD %08x\n",
++			    con, a5touch_read(pin, 0x24), pud);
++			a5touch_write(pin, 0x20, (con & ~0x00ff0000u) | 0x00220000u);
++			a5touch_write(pin, 0x28, pud & ~0x00ff0000u);
++			printf("S9SURVEY P6 gpp1 muxed: CON %08x DAT %08x PUD %08x\n",
++			    a5touch_read(pin, 0x20), a5touch_read(pin, 0x24), a5touch_read(pin, 0x28));
++			s9survey_dump("I2C6a", i2c, 0x80);
++			s9i2c_reset(i2c);
++			if (s9i2c_cmd_read(i2c, 0x55, b, 1)) {
++				printf("S9SURVEY P6: chip ACKed at 0x48, cmd 0x55 -> %02x\n", b[0]);
++				if (s9i2c_cmd_read(i2c, 0x52, b, 3)) {
++					printf("S9SURVEY P6: cmd 0x52 -> %02x %02x %02x\n", b[0], b[1], b[2]);
++				}
++			} else {
++				printf("S9SURVEY P6: no ACK from 0x48 (rails off, USI mode, clock or timing)\n");
++			}
++			printf("S9SURVEY P6 gpp1 after: DAT %08x\n", a5touch_read(pin, 0x24));
++			s9survey_dump("I2C6b", i2c, 0x80);
++			a5touch_write(pin, 0x20, con);
++			a5touch_write(pin, 0x28, pud);
++			printf("S9SURVEY P6 gpp1 restored: CON %08x PUD %08x\n",
++			    a5touch_read(pin, 0x20), a5touch_read(pin, 0x28));
++		}
++	}
++
+ 	for (unsigned i = 0; i < 64; i++) {
+ 		prev[i] = a5touch_read(aon, i * 4);
+ 	}
