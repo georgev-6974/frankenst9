@@ -1,0 +1,28 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index c5f5167..af52bb1 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1129,6 +1129,23 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		}
+ 		s9survey_pdump("USI", usi, 0x40);
+ 		s9survey_pdump("PIN", pin, 0x200);
++		/* 0180: battery bus (hsi2c_40 0x14360000, MAX77705 at 0x66), read-only */
++		{
++			vm_offset_t cu = ml_io_map(0x14212000, 0x1000);
++			vm_offset_t bi = ml_io_map(0x14360000, 0x1000);
++			vm_offset_t gp = ml_io_map(0x14220000, 0x1000);
++			printf("S9SURVEY P5b: battery bus, read-only\n");
++			if (cu) {
++				s9survey_pdump("CMGPUSI", cu, 0x20);
++			}
++			if (bi) {
++				s9survey_pdump("I2C40", bi, 0x100);
++				s9survey_pdump("I2C40c", bi + 0xc0, 0x20);
++			}
++			if (gp) {
++				s9survey_pdump("GPM", gp, 0x200);
++			}
++		}
+ 		printf("S9SURVEY P5: done\n");
+ 	}
+ 
