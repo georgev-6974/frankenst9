@@ -1,0 +1,34 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 42b0b13..b7f919d 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1175,6 +1175,29 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		}
+ 	}
+ 
++	if (level == 7) {
++		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
++		if (!i2c) {
++			printf("S9SURVEY P7: I2C mapping failed\n");
++		} else {
++			static const unsigned offs[4] = { 0x60, 0x64, 0x68, 0x6c };
++			uint32_t orig[4], rb[4];
++			s9survey_pdump("P7 before", i2c + 0xc0, 0x20);
++			for (unsigned i = 0; i < 4; i++) {
++				orig[i] = a5touch_read(i2c, offs[i]);
++				a5touch_write(i2c, offs[i], 0x01020304u + i);
++				rb[i] = a5touch_read(i2c, offs[i]);
++				printf("S9SURVEY P7 +%02x: orig %08x wrote %08x read %08x\n",
++				    offs[i], orig[i], 0x01020304u + i, rb[i]);
++			}
++			for (unsigned i = 0; i < 4; i++) {
++				a5touch_write(i2c, offs[i], orig[i]);
++			}
++			s9survey_pdump("P7 after", i2c + 0xc0, 0x20);
++			printf("S9SURVEY P7: restored\n");
++		}
++	}
++
+ 	for (unsigned i = 0; i < 64; i++) {
+ 		prev[i] = a5touch_read(aon, i * 4);
+ 	}
