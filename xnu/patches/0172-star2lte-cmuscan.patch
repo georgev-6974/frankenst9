@@ -1,0 +1,28 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 848257f..76d7254 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1238,6 +1238,23 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		}
+ 	}
+ 
++	if (level == 9) {
++		static const uint64_t bases[3] = { 0x10400000, 0x10800000, 0x15a80000 };
++		for (unsigned k = 0; k < 3; k++) {
++			vm_offset_t m = ml_io_map(bases[k], 0x8000);
++			char tag[16];
++			if (!m) {
++				printf("S9SURVEY P9 %llx: map failed\n", bases[k]);
++				continue;
++			}
++			for (unsigned o = 0; o < 0x8000; o += 0x200) {
++				snprintf(tag, sizeof(tag), "P9 %llx", bases[k]);
++				s9survey_pdump(tag, m + o, 0x10);
++			}
++		}
++		printf("S9SURVEY P9: done\n");
++	}
++
+ 	for (unsigned i = 0; i < 64; i++) {
+ 		prev[i] = a5touch_read(aon, i * 4);
+ 	}
