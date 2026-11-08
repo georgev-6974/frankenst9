@@ -1,0 +1,106 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 6cde47b..7c5241e 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -950,6 +950,7 @@ dreamlte_battery_read(unsigned *percent, unsigned *mv, int *ma,
+ #define S9_I2C_CLKIN    200000000u
+ #define S9_I2C_SCL_HZ   400000u
+ #define S9_TS_ADDR      0x48u
++extern int s9_probe_read32(vm_offset_t addr, uint32_t *out);
+ 
+ static void
+ s9survey_dump(const char *tag, vm_offset_t base, unsigned len)
+@@ -1056,7 +1057,7 @@ s9survey_thread(void *arg, wait_result_t result)
+ 		return;
+ 	}
+ 	printf("S9SURVEY: start level %d\n", level);
+-	if (level >= 3) {   /* S9SURVEY: level >= 3 reads the 0x104xxxxx block (aborts if off) */
++	if (level == 3) {   /* S9SURVEY: level 3 reads the 0x104xxxxx block (aborts if off) */
+ 		printf("S9SURVEY USI modes: 04=%08x 0c=%08x 14=%08x 1c=%08x 24=%08x 2c=%08x\n",
+ 		   a5touch_read(usi, 0x04), a5touch_read(usi, 0x0c), a5touch_read(usi, 0x14),
+ 		   a5touch_read(usi, 0x1c), a5touch_read(usi, 0x24), a5touch_read(usi, 0x2c));
+@@ -1064,7 +1065,37 @@ s9survey_thread(void *arg, wait_result_t result)
+ 	}
+ 	s9survey_dump("AON", aon, 0x100);
+ 
+-	if (level >= 3) {
++	if (level == 4) {
++		static const struct { uint32_t pa; const char *name; } cand[] = {
++			{ 0x104b0000u, "hsi2c10 (dts)" },
++			{ 0x10411000u, "usi? (0164 guess)" },
++			{ 0x10430000u, "pin? (0164 guess)" },
++			{ 0x15a80000u, "clock-controller (dts)" },
++			{ 0x10400000u, "peric0 cmu? (guess)" },
++			{ 0x10800000u, "peric1 cmu? (guess)" },
++		};
++		static const unsigned offs[] = { 0x00, 0x04, 0x08, 0x0c, 0x20, 0x24, 0x40 };
++		for (unsigned c = 0; c < sizeof(cand) / sizeof(cand[0]); c++) {
++			vm_offset_t m = ml_io_map(cand[c].pa, 0x1000);
++			printf("S9SURVEY PROBE %08x %s\n", cand[c].pa, cand[c].name);
++			if (!m) {
++				printf("S9SURVEY PROBE map failed\n");
++				continue;
++			}
++			for (unsigned i = 0; i < sizeof(offs) / sizeof(offs[0]); i++) {
++				uint32_t v = 0;
++				int rc = s9_probe_read32(m + offs[i], &v);
++				printf("S9SURVEY PROBE %08x+%02x %s %08x\n", cand[c].pa, offs[i],
++				    rc ? "FAULT" : "ok", rc ? 0u : v);
++				if (rc) {
++					break;
++				}
++			}
++		}
++		printf("S9SURVEY PROBE done\n");
++	}
++
++	if (level == 3) {
+ 		vm_offset_t i2c = ml_io_map(S9_I2C_PA, 0x1000);
+ 		uint8_t b[3] = { 0, 0, 0 };
+ 		if (!i2c) {
+diff --git a/osfmk/arm64/machine_routines_asm.s b/osfmk/arm64/machine_routines_asm.s
+index 2449334..684b548 100644
+--- a/osfmk/arm64/machine_routines_asm.s
++++ b/osfmk/arm64/machine_routines_asm.s
+@@ -477,6 +477,24 @@ LEXT(_bcopyin)
+ 	POP_FRAME
+ 	ARM64_STACK_EPILOG
+ 
++/*
++ * int s9_probe_read32(vm_offset_t addr, uint32_t *out)   (patch 0167)
++ * Returns 0, or EFAULT if the load takes an abort.
++ */
++	.text
++	.align 2
++	.globl EXT(s9_probe_read32)
++LEXT(s9_probe_read32)
++	ARM64_STACK_PROLOG
++	PUSH_FRAME
++	COPYIO_RECOVER_RANGE 1f
++	ldr		w2, [x0]
++	str		w2, [x1]
++1:
++	mov		x0, #0
++	POP_FRAME
++	ARM64_STACK_EPILOG
++
+ #if CONFIG_DTRACE
+ /*
+  * int dtrace_nofault_copy8(const char *src, uint32_t *dst)
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 9b40fc9..c71f408 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1539,6 +1539,12 @@ handle_kernel_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_ad
+ 		panic_with_thread_kernel_state("Unexpected abort while on interrupt stack.", state);
+ 	}
+ 
++	/* S9 (0167): sync external abort inside a recovery range (s9_probe_read32). */
++	if (fault_code == FSC_SYNC_EXT_ABORT && recover) {
++		handle_kernel_abort_recover(state, esr, fault_addr, thread);
++		return;
++	}
++
+ 	if (is_vm_fault(fault_code)) {
+ 		kern_return_t result = KERN_FAILURE;
+ 		vm_map_t      map;
