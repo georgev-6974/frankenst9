@@ -1,0 +1,39 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index af52bb1..36a36e1 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -1067,6 +1067,10 @@ s9i2c_takes_writes(vm_offset_t i2c)
+ 	return rb != 0;
+ }
+ 
++static bool s9a_setup(void);
++static int s9a_pmic_read(uint32_t type, uint32_t reg, uint8_t *v);
++static void s9t_ms(unsigned n);
++
+ static void
+ s9survey_thread(void *arg, wait_result_t result)
+ {
+@@ -1146,6 +1150,23 @@ s9survey_thread(void *arg, wait_result_t result)
+ 				s9survey_pdump("GPM", gp, 0x200);
+ 			}
+ 		}
++		/* 0181: S2MPS18 RTC (ACPM type 2, regs 0..0xB), read-only, twice 2 s apart */
++		if (s9a_setup()) {
++			for (int pass = 0; pass < 2; pass++) {
++				uint8_t r[12] = { 0 };
++				int nb = 0;
++				for (uint32_t i = 0; i < 12; i++) {
++					if (s9a_pmic_read(2, i, &r[i]) != 0) {
++						nb++;
++					}
++				}
++				printf("S9SURVEY RTC%d: bad %d CTRL %02x UPD %02x CAP %02x MS %02x S %02x M %02x H %02x W %02x D %02x MO %02x Y %02x\n",
++				   pass, nb, r[0], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11]);
++				s9t_ms(2000);
++			}
++		} else {
++			printf("S9SURVEY RTC: ACPM setup failed\n");
++		}
+ 		printf("S9SURVEY P5: done\n");
+ 	}
+ 
