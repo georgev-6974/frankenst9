@@ -1,0 +1,88 @@
+import subprocess, sys
+tree, out = sys.argv[1], sys.argv[2]
+f = tree + "/bsd/dev/a5xelte_touch.c"
+s = open(f).read()
+
+def rep(old, new):
+    global s
+    if s.count(old) != 1:
+        sys.exit("expected 1 match, found %d for: %r" % (s.count(old), old[:50]))
+    s = s.replace(old, new)
+
+# 1. the I2C address becomes a variable (touch keeps 0x48 by default)
+rep("static uint32_t s9t_last_err;\n", "static uint32_t s9t_addr = S9_TS_ADDR;\nstatic uint32_t s9t_last_err;\n")
+rep("a5touch_write(r, 0x70, S9_TS_ADDR << 10);", "a5touch_write(r, 0x70, s9t_addr << 10);")
+# 2. forward declaration + call from survey level 5
+rep("static void s9t_ms(unsigned n);\n", "static void s9t_ms(unsigned n);\nstatic void s9bat_test(void);\n")
+rep('\t\tprintf("S9SURVEY P5: done\\n");\n', '\t\ts9bat_test();\n\t\tprintf("S9SURVEY P5: done\\n");\n')
+# 3. the test itself (before the touch thread, after s9t_reset / s9t_msg)
+rep("static void\ns9t_thread(void *arg, __unused wait_result_t wr_)", '''/* 0182: battery bus (hsi2c_40 0x14360000). Pins gpm14-0/gpm15-0 -> function 2, pull none (as the device tree),
+ * the touch bus recipe, then a read of every address 0x08..0x77 to see who ACKs, then a few registers of 0x36/0x66. */
+static void
+s9bat_test(void)
+{
+    vm_offset_t bi = ml_io_map(0x14360000, 0x1000);
+    vm_offset_t gp = ml_io_map(0x14220000, 0x1000);
+    vm_offset_t cu = ml_io_map(0x14212000, 0x1000);
+    uint8_t b[2];
+    uint8_t acks[8];
+    unsigned nacks = 0;
+
+    if (!bi || !gp || !cu) {
+        printf("S9BAT: mapping failed\\n");
+        return;
+    }
+    for (uint32_t o = 0x1c0; o <= 0x1e0; o += 0x20) {
+        a5touch_write(gp, o, (a5touch_read(gp, o) & ~0xfu) | 2u);
+        a5touch_write(gp, o + 8, a5touch_read(gp, o + 8) & ~3u);
+    }
+    printf("S9BAT: gpm14 %08x %08x gpm15 %08x %08x\\n", a5touch_read(gp, 0x1c0), a5touch_read(gp, 0x1c8),
+        a5touch_read(gp, 0x1e0), a5touch_read(gp, 0x1e8));
+    for (int pass = 0; pass < 2 && nacks == 0; pass++) {
+        if (pass == 1) {
+            printf("S9BAT: no ACK; writing CMGP USI +00 = 4 and trying again\\n");
+            a5touch_write(cu, 0x00, 4);
+        }
+        s9t_reset(bi);
+        for (uint32_t a = 0x08; a < 0x78; a++) {
+            s9t_addr = a;
+            s9t_last_err = 0;
+            if (s9t_msg(bi, true, b, 1, true) == 0 && s9t_last_err == 0) {
+                printf("S9BAT: ACK at 0x%02x (read %02x)\\n", a, b[0]);
+                if (nacks < sizeof(acks)) {
+                    acks[nacks] = (uint8_t)a;
+                }
+                nacks++;
+            }
+        }
+        s9t_last_err = 0;
+    }
+    printf("S9BAT: scan done, %u ACKs\\n", nacks);
+    for (unsigned i = 0; i < nacks && i < sizeof(acks); i++) {
+        static const uint8_t regs[] = { 0x00, 0x01, 0x05, 0x06, 0x08, 0x09, 0x0a };
+        if (acks[i] != 0x36 && acks[i] != 0x66) {
+            continue;
+        }
+        s9t_addr = acks[i];
+        for (unsigned k = 0; k < sizeof(regs); k++) {
+            uint8_t reg = regs[k];
+            s9t_last_err = 0;
+            b[0] = b[1] = 0xee;
+            if (s9t_msg(bi, false, &reg, 1, true) == 0 && s9t_msg(bi, true, b, 2, true) == 0) {
+                printf("S9BAT: %02x reg %02x -> %02x %02x\\n", acks[i], reg, b[0], b[1]);
+            } else {
+                printf("S9BAT: %02x reg %02x failed\\n", acks[i], reg);
+            }
+        }
+    }
+    s9t_addr = S9_TS_ADDR;
+    s9t_last_err = 0;
+}
+
+static void
+s9t_thread(void *arg, __unused wait_result_t wr_)''')
+open(f, "w").write(s)
+d = subprocess.run(["git", "-C", tree, "diff", "--", "bsd/dev/a5xelte_touch.c"],
+                   capture_output=True, text=True, check=True).stdout
+open(out, "w").write(d)
+print("ok:", out, len(d.splitlines()), "diff lines")
