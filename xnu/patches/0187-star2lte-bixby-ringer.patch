@@ -1,0 +1,96 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index ae6b1fe..209f5bf 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -376,6 +376,7 @@ private:
+ OSDefineMetaClassAndStructors(SweetHIDTouch, IOHIDEventService);
+ 
+ static SweetHIDButtons *gSweetButtons;
++static UInt32 gSweetKeyPage = kHIDPage_Consumer;
+ static SweetHIDTouch *gSweetTouch;
+ 
+ bool
+@@ -399,7 +400,7 @@ SweetHIDButtons::start(IOService *provider)
+ void
+ SweetHIDButtons::key(UInt32 usage, bool down)
+ {
+-	IOHIDEvent *event = IOHIDEvent::keyboardEvent(mach_absolute_time(), kHIDPage_Consumer, usage, down);
++	IOHIDEvent *event = IOHIDEvent::keyboardEvent(mach_absolute_time(), gSweetKeyPage, usage, down);
+ 
+ 	if (event) {
+ 		IOLog("SWEET HID: key 0x%x %s (%u clients)\n", (unsigned)usage, down ? "down" : "up",
+@@ -608,8 +609,8 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
+ }
+ 
+ /* key: 0 power (side button), 1 volume up, 2 volume down, 3 home */
+-extern "C" void
+-sweet_hid_key(int key, int down)
++static void
++sweet_hid_key_plain(int key, int down)
+ {
+ 	static const UInt32 usages[] = {
+ 		kHIDUsage_Csmr_Power, kHIDUsage_Csmr_VolumeIncrement,
+@@ -621,6 +622,63 @@ sweet_hid_key(int key, int down)
+ 	}
+ }
+ 
++extern "C" void absolutetime_to_nanoseconds(uint64_t, uint64_t *);
++
++extern "C" void
++sweet_hid_key(int key, int down)
++{
++	static uint64_t t_down;
++	static int have_down;
++	static int silent;
++	static int mode = -1;
++
++	if (key != 3) {
++		sweet_hid_key_plain(key, down);
++		return;
++	}
++	if (mode < 0) {
++		int v = 1;
++		if (!PE_parse_boot_argn("s9ringer", &v, sizeof(v))) {
++			v = 1;
++		}
++		mode = v;
++	}
++	if (mode == 0) {
++		sweet_hid_key_plain(key, down);
++		return;
++	}
++	if (down) {
++		t_down = mach_absolute_time();
++		have_down = 1;
++		return;
++	}
++	if (!have_down) {
++		return;
++	}
++	have_down = 0;
++
++	uint64_t ns = 0;
++	absolutetime_to_nanoseconds(mach_absolute_time() - t_down, &ns);
++	if (ns < 600000000ull) {
++		sweet_hid_key_plain(3, 1);
++		sweet_hid_key_plain(3, 0);
++		return;
++	}
++
++	silent = !silent;
++	IOLog("SWEET HID: ringer toggle, silent=%d mode=%d (page 0x0B usage 0x2E)\n", silent, mode);
++	if (gSweetButtons) {
++		gSweetKeyPage = 0x0B;
++		if (mode == 2) {
++			gSweetButtons->key(0x2E, true);
++			gSweetButtons->key(0x2E, false);
++		} else {
++			gSweetButtons->key(0x2E, silent != 0);
++		}
++		gSweetKeyPage = kHIDPage_Consumer;
++	}
++}
++
+ extern "C" void
+ sweet_hid_touch(int finger, int down, int x, int y)
+ {
