@@ -1,0 +1,33 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index f613c4a..cd0d3f4 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -654,6 +654,28 @@ sweet_hid_key(int key, int down)
+ 		sweet_hid_key_plain(key, down);
+ 		return;
+ 	}
++	if (mode >= 3) {
++		static const UInt32 cand[3][2] = { {0x0B, 0x2E}, {0x0B, 0x2F}, {0x0C, 0xE2} };
++		if (!down) {
++			return;
++		}
++		silent = !silent;
++		IOLog("SWEET HID: ringer press silent=%d mode=%d\n", silent, mode);
++		if (gSweetButtons) {
++			if (mode == 4) {
++				for (int i = 0; i < 3; i++) {
++					gSweetKeyPage = cand[i][0];
++					gSweetButtons->key(cand[i][1], true);
++					gSweetButtons->key(cand[i][1], false);
++				}
++			} else {
++				gSweetKeyPage = (UInt32)rpage;
++				gSweetButtons->key((UInt32)ruse, silent != 0);
++			}
++			gSweetKeyPage = kHIDPage_Consumer;
++		}
++		return;
++	}
+ 	if (down) {
+ 		t_down = mach_absolute_time();
+ 		have_down = 1;
