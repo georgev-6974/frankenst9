@@ -1,0 +1,209 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 98c8a69..b05166c 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -929,12 +929,13 @@ dreamlte_touch_start(void)
+  */
+ int dreamlte_battery_read(unsigned *percent, unsigned *mv, int *ma,
+     int *external, int *charging, int *full);
++static int s9bat_read(unsigned *percent, unsigned *mv, int *ma, int *external, int *charging, int *full);
++
+ int
+ dreamlte_battery_read(unsigned *percent, unsigned *mv, int *ma,
+     int *external, int *charging, int *full)
+ {
+-	(void)percent; (void)mv; (void)ma; (void)external; (void)charging; (void)full;
+-	return -1;
++	return s9bat_read(percent, mv, ma, external, charging, full);
+ }
+ #endif /* STAR2LTE */
+ 
+@@ -1761,12 +1762,14 @@ static uint32_t s9t_last_err;
+ static unsigned s9t_dumped;
+ 
+ static uint32_t s9t_ipclk_mhz = 200;   /* input clock of the bus being reset, MHz */
++static vm_offset_t s9bat_bus;          /* the battery bus mapping once the service is up (0 before) */
++static uint32_t s9bat_addr, s9bat_clk = 400;   /* its target address and input clock; used only for s9bat_bus */
+ 
+ static void
+ s9t_reset(vm_offset_t r)
+ {
+-    uint32_t div = s9t_ipclk_mhz * 1000000u / (400000u * 15u);
+-    uint32_t n = (9u * s9t_ipclk_mhz) / ((div + 1u) * 10u), m, scl_h, start_hd;
++    uint32_t div = ((r == s9bat_bus) ? s9bat_clk : s9t_ipclk_mhz) * 1000000u / (400000u * 15u);
++    uint32_t n = (9u * ((r == s9bat_bus) ? s9bat_clk : s9t_ipclk_mhz)) / ((div + 1u) * 10u), m, scl_h, start_hd;
+ 
+     a5touch_write(r, 0xc4, 0);                     /* USI_CON: its reset value 1 holds the block in reset */
+     a5touch_write(r, 0x24, a5touch_read(r, 0x24));
+@@ -1797,7 +1800,7 @@ s9t_msg(vm_offset_t r, bool reading, uint8_t *buf, uint32_t len, bool stop)
+     a5touch_write(r, 0x24, a5touch_read(r, 0x24));
+     a5touch_write(r, 0x04, 0x3u | trigger << 4 | trigger << 16);
+     a5touch_write(r, 0x00, (1u << 3) | (reading ? (1u << 6) : (1u << 7)));
+-    a5touch_write(r, 0x70, s9t_addr << 10);
++    a5touch_write(r, 0x70, ((r == s9bat_bus) ? s9bat_addr : s9t_addr) << 10);
+     a5touch_write(r, 0x20, 0xf80u);
+     a5touch_write(r, 0x44, len | (reading ? (1u << 16) : 0) | (stop ? (1u << 17) : 0));
+     a5touch_write(r, 0x44, a5touch_read(r, 0x44) | (1u << 31));
+@@ -2047,6 +2050,162 @@ s9bat_read_reg(vm_offset_t bi, uint8_t addr, uint8_t reg, uint8_t *b, bool *rs)
+     return false;
+ }
+ 
++/* ---- 0185: the S9+ battery for SweetBattery (iokit/Kernel/arm/SweetBattery.cpp) ---- */
++#define S9BAT_GAUGE     0x36u
++#define S9BAT_CHARGER   0x69u
++
++static int s9bat_state;     /* 0 not tried, 1 up, -1 off */
++
++/* register read of the battery bus: address register, repeated start, then len bytes (what 0184 proved) */
++static int
++s9b_read(uint32_t addr, uint8_t reg, uint8_t *buf, uint32_t len)
++{
++    uint32_t e = 1;
++
++    for (int attempt = 0; attempt < 2 && e != 0; attempt++) {
++        s9bat_addr = addr;
++        e = s9t_msg(s9bat_bus, false, &reg, 1, false);
++        if (e == 0) {
++            e = s9t_msg(s9bat_bus, true, buf, len, true);
++        }
++    }
++    return e ? -1 : 0;
++}
++
++/* a 16-bit little-endian gauge register */
++static int
++s9b_rd16(uint8_t reg, uint32_t *v)
++{
++    uint8_t b[2] = { 0, 0 };
++
++    if (s9b_read(S9BAT_GAUGE, reg, b, 2)) {
++        return -1;
++    }
++    *v = (uint32_t)b[0] | ((uint32_t)b[1] << 8);
++    return 0;
++}
++
++static int
++s9bat_init(void)
++{
++    static const uint32_t gates[] = { 0x2014, 0x20a8, 0x20ac, 0x2074 };
++    uint32_t sv = 0, div, ipclk = 400, con, pud;
++    vm_offset_t bi, gp, cu, cm;
++    unsigned i;
++
++    (void)PE_parse_boot_argn("s9survey", &sv, sizeof(sv));
++    if (sv) {
++        printf("S9BAT svc: off while s9survey is set\n");
++        return -1;
++    }
++    bi = ml_io_map(0x14360000, 0x1000);
++    gp = ml_io_map(0x14220000, 0x1000);
++    cu = ml_io_map(0x14212000, 0x1000);
++    cm = ml_io_map(0x14200000, 0x4000);
++    if (!bi || !gp || !cu || !cm) {
++        printf("S9BAT svc: mapping failed\n");
++        return -1;
++    }
++    for (i = 0; i < 4; i++) {
++        if (s9bat_rd(cm, gates[i]) == 0xdeadfa17u) {
++            printf("S9BAT svc: clock gate register faulted, off\n");
++            return -1;
++        }
++    }
++    if (s9bat_rd(cm, 0x3050) == 0xdeadfa17u || s9bat_rd(cu, 0x30) == 0xdeadfa17u) {
++        printf("S9BAT svc: Q-channel or USI register faulted, off\n");
++        return -1;
++    }
++    for (i = 0; i < 2; i++) {
++        uint32_t o = i ? 0x1a0 : 0x180;     /* gpm15 / gpm14, from the dt alias order (confirmed by 0184) */
++
++        if (s9bat_rd(gp, o) == 0xdeadfa17u || s9bat_rd(gp, o + 8) == 0xdeadfa17u) {
++            printf("S9BAT svc: pin register +%03x faulted, off\n", o);
++            return -1;
++        }
++    }
++    for (i = 0; i < 4; i++) {
++        a5touch_write(cm, gates[i], a5touch_read(cm, gates[i]) | (3u << 20));
++    }
++    a5touch_write(cm, 0x3050, a5touch_read(cm, 0x3050) | 3u);
++    a5touch_write(cu, 0x30, 4);
++    for (i = 0; i < 2; i++) {
++        uint32_t o = i ? 0x1a0 : 0x180;
++
++        con = a5touch_read(gp, o);
++        pud = a5touch_read(gp, o + 8);
++        a5touch_write(gp, o, (con & ~0xfu) | 2u);
++        a5touch_write(gp, o + 8, pud & ~3u);
++    }
++    div = s9bat_rd(cm, 0x1814);
++    if (div != 0xdeadfa17u) {
++        ipclk = 400u / ((div & 0xfu) + 1u);
++    }
++    if (ipclk < 26 || ipclk > 400) {
++        ipclk = 400;
++    }
++    s9bat_clk = ipclk;
++    s9bat_bus = bi;
++    s9t_reset(bi);
++    if (!(a5touch_read(bi, 0x30) & (1u << 24))) {
++        printf("S9BAT svc: FIFO_STAT shows RX not empty while idle: block is dead, off\n");
++        s9bat_bus = 0;
++        return -1;
++    }
++    printf("S9BAT svc: bus up, input clock %u MHz\n", ipclk);
++    return 0;
++}
++
++static int
++s9bat_read(unsigned *percent, unsigned *mv, int *ma, int *external, int *charging, int *full)
++{
++    static unsigned calls;
++    static int last_ext = -1, last_chg = -1;
++    uint8_t ok = 0, dtls = 0x0f;
++    uint32_t status = 0, soc = 0, vcell = 0, cur = 0;
++    bool chg_ok;
++    unsigned pct;
++
++    if (s9bat_state == 0) {
++        s9bat_state = (s9bat_init() == 0) ? 1 : -1;
++    }
++    if (s9bat_state < 0) {
++        return -1;
++    }
++    if (s9b_rd16(0x00, &status) || s9b_rd16(0x06, &soc) || s9b_rd16(0x09, &vcell) || s9b_rd16(0x0a, &cur)) {
++        if (calls < 40) {
++            printf("S9BAT svc: gauge read failed\n");
++        }
++        calls++;
++        return -1;
++    }
++    chg_ok = !s9b_read(S9BAT_CHARGER, 0xb2, &ok, 1) && !s9b_read(S9BAT_CHARGER, 0xb4, &dtls, 1);
++    if (!chg_ok) {
++        ok = 0;
++        dtls = 0x0f;
++    }
++    if (status & (1u << 3)) {
++        return -1;      /* the gauge says: no battery */
++    }
++    pct = (unsigned)(soc >> 8) + (((soc & 0xffu) >= 128) ? 1u : 0u);
++    *percent = pct > 100 ? 100 : pct;
++    *mv = (unsigned)((uint64_t)vcell * 78125u / 1000000u);
++    *ma = (int)((int16_t)cur) * 3125 / 10000;       /* 312.5 uA per step; > 0 while charging */
++    *external = (ok & (3u << 5)) != 0;              /* the USB input or the wireless one */
++    dtls &= 0x0f;
++    *charging = *external && dtls <= 2;
++    *full = *external && (dtls == 3 || dtls == 4);
++    if (calls < 40 || *external != last_ext || *charging != last_chg) {
++        printf("S9BAT svc: %u%% %u mV %d mA ext=%d chg=%d full=%d (soc %04x vcell %04x cur %04x b2 %02x b4 %02x "
++            "charger %s)\n", *percent, *mv, *ma, *external, *charging, *full, (unsigned)soc, (unsigned)vcell,
++            (unsigned)cur, ok, dtls, chg_ok ? "ok" : "read failed");
++    }
++    calls++;
++    last_ext = *external;
++    last_chg = *charging;
++    return (*mv >= 2800 && *mv <= 4600) ? 0 : -1;
++}
++
+ static void
+ s9bat_test(void)
+ {
