@@ -1,0 +1,46 @@
+diff --git a/bsd/dev/a5xelte_touch.c b/bsd/dev/a5xelte_touch.c
+index 02e7134..98c8a69 100644
+--- a/bsd/dev/a5xelte_touch.c
++++ b/bsd/dev/a5xelte_touch.c
+@@ -2070,7 +2070,7 @@ s9bat_test(void)
+     }
+ 
+     /* 1. pin banks, read only */
+-    for (uint32_t o = 0; o < 0x400; o += 0x20) {
++    for (uint32_t o = 0x160; o <= 0x1c0; o += 0x20) {
+         printf("S9BAT: pins +%03x CON %08x DAT %08x PUD %08x\n", o, s9bat_rd(gp, o), s9bat_rd(gp, o + 4),
+             s9bat_rd(gp, o + 8));
+     }
+@@ -2105,6 +2105,32 @@ s9bat_test(void)
+         a5touch_read(cm, gates[1]), a5touch_read(cm, gates[2]), a5touch_read(cm, gates[3]),
+         a5touch_read(cm, 0x3050), a5touch_read(cu, 0x30));
+ 
++    /* 3b. 0184: gpm14-0 / gpm15-0 to function 2, no pull (dt hsi2c40-bus). Banks +0x180 / +0x1a0 are
++     * derived from the dt alias order, not measured: the dumps before and after show what really changed. */
++    {
++        static const uint32_t pbank[] = { 0x180, 0x1a0 };
++        unsigned pi;
++
++        for (pi = 0; pi < 2; pi++) {
++            uint32_t o = pbank[pi];
++            uint32_t con = s9bat_rd(gp, o);
++            uint32_t pud = s9bat_rd(gp, o + 8);
++
++            if (con == 0xdeadfa17u || pud == 0xdeadfa17u) {
++                printf("S9BAT: pin write +%03x skipped, register faulted\n", o);
++                continue;
++            }
++            printf("S9BAT: pin write +%03x CON %08x PUD %08x -> ", o, con, pud);
++            a5touch_write(gp, o, (con & ~0xfu) | 2u);
++            a5touch_write(gp, o + 8, pud & ~3u);
++            printf("CON %08x PUD %08x\n", a5touch_read(gp, o), a5touch_read(gp, o + 8));
++        }
++        for (uint32_t o = 0x160; o <= 0x1c0; o += 0x20) {
++            printf("S9BAT: pins after +%03x CON %08x DAT %08x PUD %08x\n", o, s9bat_rd(gp, o),
++                s9bat_rd(gp, o + 4), s9bat_rd(gp, o + 8));
++        }
++    }
++
+     /* 4. input clock, reset */
+     div = s9bat_rd(cm, 0x1814);
+     if (div != 0xdeadfa17u) {
