@@ -1,6 +1,6 @@
 # frankenstnine - Galaxy S9+ (SM-G965F, star2lte, Exynos 9810) iOS 16.7 port - PROGRESS
 
-Last rewrite: session 6, 2026-11-10; updated session 7 (same day: code of 0182 read, 0183 written) (merged from the old LATEST 2-6, the 2026-11-05..08 handoffs and HANDOFF session 6). The old file was organized by session and contradicted itself; this one is organized by topic and holds only the final version of each fact. Superseded claims are kept ONLY where they warn against a wrong turn ("was wrong: ...").
+Last rewrite: session 6, 2026-11-10; updated session 7 (same day: code of 0182 read, 0183 written); session 8 (2026-11-12: battery read WORKS, 30 s service measured) (merged from the old LATEST 2-6, the 2026-11-05..08 handoffs and HANDOFF session 6). The old file was organized by session and contradicted itself; this one is organized by topic and holds only the final version of each fact. Superseded claims are kept ONLY where they warn against a wrong turn ("was wrong: ...").
 
 Project name: **frankenstnine** (display name only; dirs, patches, code keep `star2lte`). GitHub: user `georgev-6974`, repo `frankenst9` (was `s9plus-ios`). Local folder: `~/Downloads/ios-galaxy-s9plus`. Fork of the S8 (dreamlte) port.
 
@@ -11,13 +11,13 @@ Project name: **frankenstnine** (display name only; dirs, patches, code keep `st
 ## 1. Goal and where we are
 
 **Goal:** a usable iOS 16.7 on the S9+: touch, keys, clock, battery level, speed; later a real GPU (Mali, huge, no Metal/AGX path: hardware survey first, unrealistic for now).
-**Immediate goal:** real battery (and clock) data so iOS can show a charge level. Step one = a working I2C read of the MAX77705 fuel gauge/charger on hsi2c_40. Later: Spotlight loop, iPad-looking apps, Bixby -> ringer.
+**Immediate goal (session 8):** (1) a faster/instant battery update than the 30 s poll, without costing CPU; (2) `s9touch=2` default in s9go. Battery I2C read itself is DONE. Later: Spotlight loop, iPad-looking apps, Bixby -> ringer.
 
 **State (2026-11-10):**
 - iOS 16.7.16 reaches the home screen on 8 cores (kernel 0162+), with root `disabled.plist` applied.
 - **Touch works** (S6SY761 over hsi2c10, events reach SpringBoard, used ~20 min, 0 failed transfers over 7+ min). Keys work with `a5keys=1`.
 - Slow (CPU-only rendering, expected). Date fixed by boot-arg `s8rtc`.
-- Battery I2C: 0182 booted and its scan is **meaningless** (see section 2).
+- **Battery I2C works (session 8, measured):** 0183 + the battery service read the MAX77705 on hsi2c_40 every 30 s (log prefix `S9BAT svc`). Next: instant updates (section 2).
 
 | patch | what | status |
 | --- | --- | --- |
@@ -26,7 +26,9 @@ Project name: **frankenstnine** (display name only; dirs, patches, code keep `st
 | 0180 | survey level 5 also dumps battery bus (read-only) | booted, output in section 2 |
 | 0181 | survey level 5 also reads S2MPS18 RTC via ACPM type 2 (read-only) | booted, output in section 2 |
 | 0182 | survey level 5 also runs `s9bat_test()`: gpm14/15 -> func 2, hsi2c_40 reset, scan ACKs 0x08..0x77, read regs of 0x36/0x66 | built, booted; **WROTE pin CON/PUD of gpm14/15** (guessed bank offsets); results unusable |
-| 0183 | `make-0183.py`: CMU_CMGP gates + Q-channel + USI word 0x14212030=4 (all read with nofault probe first), input clock from CMU divider, sanity check (idle FIFO_STAT RX-empty), control scan of impossible addresses, real scan, reg reads of 0x25/0x36/0x66/0x69. **No pin writes.** `s9t_reset` uses `s9t_ipclk_mhz` (default 200, touch unchanged) | written session 7; generator tested on a mock + C compiled against stubs with -Wall -Wextra -Werror; not built in CI, not booted |
+| 0184 | `0184-star2lte-battery-i2c-pins.patch` (pins variant of the battery probe; details not recorded, see `git show 6bc144f --stat`) | built, booted |
+| 0185 | `0185-star2lte-battery-service.patch`: 30 s battery service thread, log prefix `S9BAT svc`. **Disabled when `s9survey` is set** (log: `S9BAT svc: off while s9survey is set`). Runs on a normal boot (no survey) | built, booted, **works** (measured, below) |
+| 0183 | `make-0183.py`: CMU_CMGP gates + Q-channel + USI word 0x14212030=4 (all read with nofault probe first), input clock from CMU divider, sanity check (idle FIFO_STAT RX-empty), control scan of impossible addresses, real scan, reg reads of 0x25/0x36/0x66/0x69. **No pin writes.** `s9t_reset` uses `s9t_ipclk_mhz` (default 200, touch unchanged) | built and booted; bus came up (`S9BAT svc: bus up, input clock 400 MHz`). Patch number of the 30 s battery service (after 0183): not recorded here, fill in from `ls xnu/patches | tail` |
 
 **Answered (session 7, user-reported):** taps are accurate without range boot args (0179 ok). iPad symptom: only in the Phone app (dialer digits smaller and centered) and Settings layout looked smaller, like a phone-sized layout on a bigger/odd screen (see section 8). Still unanswered: does the phone feel faster after 0038/0179.
 
@@ -40,6 +42,22 @@ Project name: **frankenstnine** (display name only; dirs, patches, code keep `st
 - CMGP USI 0x14212000: +00=0, +04=4, +10=0, +14=4 (which one belongs to hsi2c_40 unknown).
 - I2C40 regs 0x00..0xBF all 0; +0xC4 = 1 (held in reset, same state touch was in before 0178).
 - Gauge address 0x36 and registers 0x06 (RepSOC) / 0x09 (VCell) are **guesses** from the Snapdragon S9 / max17042 layout.
+
+### Session 8: battery read WORKS (measured, 11 `S9BAT svc` lines, 30 s period)
+- `S9BAT svc: bus up, input clock 400 MHz` (CMU divider read gives 400, matches the reference claim).
+- Line format: `NN% mV mA ext= chg= full= (soc XXXX vcell XXXX cur XXXX b2 XX b4 XX charger ok)`. Raw -> value as the code decodes it: soc 0x2f79 -> 47%, vcell 0xc038 -> 3844 mV, cur 0x025b -> 188 mA (signed 16 bit; 0xfc8d -> -275 mA).
+- Samples: 47-48% the whole run (soc raw 0x2f79 -> 0x2ee3 over ~10 samples), vcell 3715-3844 mV, current swings -579..+188 mA (noisy: average it, do not show it raw).
+- **Charger status registers are the useful "instant" signal:** `b2 df b4 01` = cable in (ext=1 chg=1); `b2 9f b4 08` = cable out (ext=0 chg=0). The plug/unplug flips seen in the run (rows 6-8 unplugged, then plugged again) show these two bytes change at once, voltage/current follow within one sample.
+- So: SOC (slow, changes ~1% per many minutes) needs no fast poll; only plug state and current need it.
+- **Normal boot (0185, no survey), measured:** `S9BAT svc: bus up, input clock 400 MHz`, then 5 lines 48% / 3786-3833 mV / ext=1 chg=1 (`b2 df b4 01`), soc raw 0x3060..0x303e. To see the service use `s9go out-0185 a5fb_keep_on=1 s8rtc=(date +%s)` (touch is default now), NOT `s9survey=`.
+- Register names for 0x25/0x36/0x66/0x69 reads: the service uses fuel gauge at 0x36 (soc/vcell/cur) and the charger at 0x69 (b2/b4)? NOT confirmed from the log; check the service code before relying on it.
+
+### Instant update: options (session 8, untested ideas, in order of cost)
+1. **Faster cheap poll of the charger bytes only** (b2/b4, one 2-byte I2C read ~100 us at 400 kHz): every 1 s, sleep with `assert_wait_deadline` (like the touch thread, 0179), NOT spinning. CPU cost ~0.01%. Fuel gauge (soc/vcell/cur) stays at 30 s, or 5 s while charging state just changed. Simplest, no new hardware facts.
+2. **Interrupt line piggy-back (best "instant", still free): NOT READY, session 8 findings:** dt: `max77705,irq-gpio = <0x6c 0x06 0x01>` (phandle 0x6c = gpa1, same as the touch irq) and pinctrl node `max77705_irq` = gpa1-6, so the IRQ pin is AON +0x24 bit 6. AON +024 idle = 0x5e (bit 6 high = idle/inactive, bits 0 and 5 low). Survey run (voldown pressed): only `5e->4e` (bit 4 = voldown) and +064 `14->04` (power) seen; bit 6 never moved. dt key nodes: `key_wink` (= Bixby), `key_voldown`, `key_volup`, `key_power` at live.dts lines 355-390; **the earlier "bixby = gpa1 bit 6" note is in doubt** (dt says bit 6 is the max77705 IRQ); key_wink's pin not yet read (`sed -n '355,363p' star2lte-facts/live.dts`). Not known whether cable events were done in that survey run. Guess: the chip's interrupt mask registers are still masked after S-Boot, so the line may never fall until WE unmask it (extra writes, extra risk). Verdict: do option 1 first; option 2 only after the pin is confirmed by a cable test.
+(old text follows) dt says max77705 irq = gpa1-6; AON +0x24 is already read every 4 ms by the touch thread for gpa1-0 (touch IRQ). Reading bit 6 of the same word costs nothing; on low -> read charger/gauge status at once and clear. **Conflict to check first:** the key map says bixby = gpa1 bit6 (section 4). One of the two is wrong or the pin is shared; check `grep -n -i -E 'max77705|irq|gpa1' star2lte-facts/live.dts | head -40` and a bit-6 read with nothing pressed (idle level) before trusting it. A level IRQ that stays low until the chip is cleared must be acked by reading its status register, else it re-fires every tick.
+3. Event push to iOS rather than iOS polling: depends on the battery service design (backlog 1); an IOPM-style update only when the value changed.
+- Do NOT: busy-wait, shorten the fuel-gauge read below ~5 s (nothing changes), or poll inside the 4 ms touch tick with I2C (touch tick should only read the AON GPIO word).
 
 ### 0182 boot result (measured)
 - `S9BAT: gpm14 00000002 00000000 gpm15 00000002 00000000` = CON, PUD read back AFTER our write (print order read from the code, session 7), i.e. exactly what we wrote. The registers took the write, which does not prove they are gpm14/15: before the write CON was 0 (input) and the reference says S-Boot leaves these pins on function 2, so the guessed offsets are probably another bank (**we may have set pin 0 of an unrelated bank to function 2**; 0183 writes no pins and dumps all banks).
@@ -70,11 +88,11 @@ The reference runs on the real S9+ in a WoA port. Its battery bus is USI03 of CM
 - API: message returns 0 / INT_STAT error bits 0xf00 / 1 = own timeout; a failed message resets the bus; read_reg = write reg, repeated start, read.
 - Code of `s9t_reset`/`s9t_msg`/`s9bat_test` (0182) was read in session 7 (section above). Optional cross-check, user has not run it: `grep -n -i -E '14200000|14212030|14220000|gpm14|gpm15' star2lte-facts/live.dts | cut -c1-150 | head -30`
 
-### NEXT (in order)
-1. `s9push 0183 battery-i2c` (make-0183.py in ~/Downloads; do not run s9install on it first, s9push moves it). Then `s9go out-0183 s9survey=5 a5fb_keep_on=1 s8rtc=(date +%s)`. Verify the stale-kernel trap first: `grep -a -c 'S9BAT: control' xnu/out-0183/kernel.development.a5xelte` >= 1. Then `s9pull -g S9BAT` (no `-v 'ACK at'` any more: ACK lines now matter).
-2. Read the result: (a) "block is dead" = clocks/addresses wrong, compare the `cmu before/after` lines; (b) control addresses ACKed = test still broken; (c) a short ACK list (expect 0x25, 0x36, 0x66, 0x69 or some of them) with register values = success. The `pins +xxx` lines show which banks have CON low nibble 2 (the real gpm14/15) and whether S-Boot left them on function 2.
-3. If 0x36/0x66 read real values: battery reader (fuel gauge regs from the real chip, not the max17042 guesses), then fake/real battery service for iOS.
-4. Backlog: section 10. Optional: `s8rtc=(date +%s)` default in s9go.
+### NEXT (in order, session 8, latest)
+1. `cat xnu/patches/0185-star2lte-battery-service.patch` (assistant reads the service thread), then write `make-0186.py`: charger bytes (b2/b4) polled every 1 s with `assert_wait_deadline` sleep, gauge (soc/vcell/cur) every 30 s (5 s right after a charger change), log only on change. Boot WITHOUT `s9survey`.
+2. Confirm Bixby pin: `sed -n '355,363p' star2lte-facts/live.dts`; fix section 4 key map if wrong. Optional cable test of AON +024 bit 6.
+3. Battery -> iOS service (backlog 1). Backlog: section 10.
+Done in session 8: `s9touch=2` is now default in s9go (explicit `s9touch=` wins; delivered as s9go.fish, install with `s9install`).
 
 ### Clock (RTC)
 - Boot-arg `s8rtc=(date +%s)` fixes the date (user-reported). Kernel side: patch 0124 PEGetUTCTimeOfDay, A5XELTE only. loader.c has no PMIC read for S9.
@@ -121,7 +139,7 @@ The user does NOT know low-level stuff, is new to git/kernels, runs **fish on Ar
 mv ~/Downloads/s9push.fish ~/.config/fish/functions/      # once
 s9push 0183 battery-i2c
 s9go out-0183 s9survey=5 a5fb_keep_on=1 s8rtc=(date +%s)               # survey boot
-s9go out-0179 a5fb_keep_on=1 s9touch=2 s8rtc=(date +%s)                # normal boot
+s9go out-0185 a5fb_keep_on=1 s8rtc=(date +%s)                # normal boot (touch + keys default; battery service runs)
 s9pull -g S9BAT
 ```
 Undo (phone in TWRP): `adb push ~/s9-backup/boot-sda10.img /tmp/b.img` then `adb shell "dd if=/tmp/b.img of=/dev/block/sda10 bs=1048576 conv=fsync; sync"` (or `s9.sh restore`). Backup `~/s9-backup/boot-sda10.img` 58M, sha256 `c71d2ba9...ed931a`.
@@ -142,7 +160,7 @@ Sources: TWRP/Android dumps in `star2lte-facts/` (incl. `live.dts`, local, ~400 
 - **Display:** DECON_F 0x16030000 (command mode, HW trigger, 1440x2960), DECON_T 0x16050000, DSIM 0x16080000, DPP 0x16021000-0x16026000, SYSMMUs 0x160a0000/160b0000/160c0000. **Trigger register DECON_F+0x70 = 0x16030070**: reads 0x3070, we write 0x1281, reads back 0x1001 (the S8 value works). **S-Boot framebuffer 0xcc000000** (`s3cfb.bootloaderfb`), 1440x2960.
 - **Touch:** Samsung `sec_ts` dt node at 0x48 on `hsi2c@104B0000`, irq gpa1-0 (`<0x6c 0 0>`), rails `tsp_io` = s2mps18 **LDO35** 1.8 V (reg 0x6c) and `tsp_avdd` = **LDO43** 3.0 V (reg 0x74); sec,regulator_boot_on. The chip actually speaks the Samsung **S6SY761** protocol (see section 7).
 - **PMIC:** `s2mps18mfd` + `s2mpb03` behind **ACPM IPC channel 2** (no direct access; no s2mps18 regmap in debugfs), plus `speedy@141C0000`.
-- **Keys** (AON block 0x14050000, active low): volup gpa1 bit3, voldown gpa1 bit4, bixby gpa1 bit6 (all +024), power gpa3 bit4 (+064). Bank order gpa0 gpa1 gpa2 gpa3 gpq0 gpa4, 0x20 stride (assumed): gpa1 at +020 (DAT +024), gpa2 +040. pinctrl@10430000 banks gpp0 gpp1 gpp2 gpp3 gpg0 gpg1 gpg2 (gpp1 at +020). Linux codes: power, volup 0x73, voldown 0x72, Bixby 0x2bf. (Earlier "AON +044 = gpa1 DAT" was wrong.)
+- **Keys** (AON block 0x14050000, active low; **bixby bit 6 is in doubt: dt says gpa1-6 is the max77705 IRQ, see section 2**): volup gpa1 bit3, voldown gpa1 bit4 (confirmed session 8: `5e->4e`), bixby gpa1 bit6 (all +024), power gpa3 bit4 (+064). Bank order gpa0 gpa1 gpa2 gpa3 gpq0 gpa4, 0x20 stride (assumed): gpa1 at +020 (DAT +024), gpa2 +040. pinctrl@10430000 banks gpp0 gpp1 gpp2 gpp3 gpg0 gpg1 gpg2 (gpp1 at +020). Linux codes: power, volup 0x73, voldown 0x72, Bixby 0x2bf. (Earlier "AON +044 = gpa1 DAT" was wrong.)
 - **TWRP limits:** no busybox, no /dev/mem (CONFIG_DEVMEM unset, ENXIO), PMU not in regmap debugfs; `mount -t debugfs none /sys/kernel/debug` works (`decon/` dumps empty, `event0` = driver events only). ramoops NOT configured (`mem_address=0 mem_size=0`, pstore empty).
 - **ACPM (measured on our boot):** firmware "92dbdb1 yongjin_man" 18:02:42 Jun 11 2018, 18 channels at SRAM +0x5bfc, 13 the AP's. Channel 2 = PMIC, polled queue 5 x 16 B, in +82f0, out +8290. Mailbox 0x14100000 (INTGR0 +08 = 1<<(16+ch), INTCR1 +20, INTSR1 +28); SRAM 0x02039000 (first 0x3000 fault, map from +0x3000), initdata +0x7F00. PMIC request: word0 = (type&0xf)<<8 | reg | seq<<16 (seq 1..63); word1 read = 0, write = 1|val<<8, update = 2|val<<8|mask<<16; reply word1: bits 31:24 error, 15:8 value. Type 1 = S2MPS18 PMIC block, type 2 = RTC.
 - **Touch rails (measured):** after S-Boot LDO35 (0x6c) = 0x2c and LDO43 (0x74) = 0x30 = OFF (on = bits 7:6 set, 0xc0). TWRP Linux has both enabled (different state: not our boot).
@@ -254,7 +272,7 @@ Sources: TWRP/Android dumps in `star2lte-facts/` (incl. `live.dts`, local, ~400 
 
 ## 10. Backlog (in order after the battery read)
 
-1. Battery -> iOS: needs a fake/real battery service (separate from the I2C read).
+1. Battery -> iOS: the I2C read + 30 s service work; still needs the iOS-facing battery service (and instant updates, section 2). `s9touch=2` default in s9go.
 2. Spotlight loop: find what it waits for (compare real iOS AKS answers, or log Spotlight's other calls; sel 17 never reports a state it waits for = guess).
 3. iPad symptom (description received, section 8).
 4. Bixby -> ringer (read the button code first).
