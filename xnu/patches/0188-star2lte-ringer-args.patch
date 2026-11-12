@@ -1,0 +1,45 @@
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index 209f5bf..f613c4a 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -631,6 +631,7 @@ sweet_hid_key(int key, int down)
+ 	static int have_down;
+ 	static int silent;
+ 	static int mode = -1;
++	static int rpage = 0x0B, ruse = 0x2E;
+ 
+ 	if (key != 3) {
+ 		sweet_hid_key_plain(key, down);
+@@ -642,6 +643,12 @@ sweet_hid_key(int key, int down)
+ 			v = 1;
+ 		}
+ 		mode = v;
++		if (!PE_parse_boot_argn("s9rpage", &rpage, sizeof(rpage))) {
++			rpage = 0x0B;
++		}
++		if (!PE_parse_boot_argn("s9ruse", &ruse, sizeof(ruse))) {
++			ruse = 0x2E;
++		}
+ 	}
+ 	if (mode == 0) {
+ 		sweet_hid_key_plain(key, down);
+@@ -666,14 +673,14 @@ sweet_hid_key(int key, int down)
+ 	}
+ 
+ 	silent = !silent;
+-	IOLog("SWEET HID: ringer toggle, silent=%d mode=%d (page 0x0B usage 0x2E)\n", silent, mode);
++	IOLog("SWEET HID: ringer toggle, silent=%d mode=%d page 0x%x usage 0x%x\n", silent, mode, rpage, ruse);
+ 	if (gSweetButtons) {
+-		gSweetKeyPage = 0x0B;
++		gSweetKeyPage = (UInt32)rpage;
+ 		if (mode == 2) {
+-			gSweetButtons->key(0x2E, true);
+-			gSweetButtons->key(0x2E, false);
++			gSweetButtons->key((UInt32)ruse, true);
++			gSweetButtons->key((UInt32)ruse, false);
+ 		} else {
+-			gSweetButtons->key(0x2E, silent != 0);
++			gSweetButtons->key((UInt32)ruse, silent != 0);
+ 		}
+ 		gSweetKeyPage = kHIDPage_Consumer;
+ 	}
